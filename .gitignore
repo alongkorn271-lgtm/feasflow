@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Generated reports / test outputs
+report_*.xlsx
+report_*.pdf
+feas_test_*.xlsx
+feas_test_*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Streamlit cache
+.streamlit/secrets.toml
+
+# Local launch config (kept out of git)
+.claude/
