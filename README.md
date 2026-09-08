@@ -57,13 +57,20 @@ The calculation chain is verified formula-by-formula against textbook standards
 
 ## Screenshots
 
-| Different engine (Solar PV) | About / author |
-|---|---|
-| ![Solar PV](docs/gui-solar.png) | ![About](docs/gui-about.png) |
+**Financial visualizations** — revenue composition + NPAT, cumulative cash flow
+(with the payback marker), DSCR profile against the 1.30 bank line, and the
+year-by-year OPEX breakdown:
 
-KPI cards carry meaningful sparklines: return/NPV/payback show **cumulative cash
-flow** (crossing the dashed 0-line = paid back); DSCR shows the **year-by-year
-profile** against the dashed 1.30 bank threshold.
+![Visualizations](docs/gui-charts.png)
+
+**Biogas engine** — the transparent COD → CH₄ → biogas → kWh chemistry chain
+that drives generation, feedstock and CAPEX:
+
+![Biogas chemistry chain](docs/gui-biogas.png)
+
+KPI cards also carry meaningful sparklines: return / NPV / payback show
+**cumulative cash flow** (crossing the dashed 0-line = paid back); DSCR shows the
+**year-by-year profile** against the dashed 1.30 bank threshold.
 
 ## Run it
 
