@@ -80,6 +80,27 @@ def npv_calc(cash_flows: list[float], disc: float) -> float:
     return sum(cf / (1 + disc) ** t for t, cf in enumerate(cash_flows))
 
 
+def mirr(cash_flows: list[float], finance_rate: float,
+         reinvest_rate: float) -> Optional[float]:
+    """Modified IRR (Excel MIRR). Financing cost `finance_rate` for negative
+    flows, reinvestment at `reinvest_rate` for positive flows. Always single-
+    valued, so it works when the ordinary IRR has no sign change or several
+    (e.g. a loss-making base case whose IRR is undefined)."""
+    n = len(cash_flows) - 1
+    if n <= 0:
+        return None
+    pv_neg = sum(cf / (1 + finance_rate) ** t
+                 for t, cf in enumerate(cash_flows) if cf < 0)
+    fv_pos = sum(cf * (1 + reinvest_rate) ** (n - t)
+                 for t, cf in enumerate(cash_flows) if cf > 0)
+    if pv_neg >= 0 or fv_pos <= 0:
+        return None
+    try:
+        return (fv_pos / -pv_neg) ** (1.0 / n) - 1.0
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
 def payback_period(cum_cf: list[float]) -> Optional[float]:
     """Year (1-indexed, linearly interpolated) when cumulative CF first turns ≥ 0."""
     for t, v in enumerate(cum_cf):
@@ -176,6 +197,40 @@ def boi_tax_rate(year_idx: int, boi_full_years: int,
     if year_idx < boi_full_years:                                  return 0.0
     if year_idx < boi_full_years + boi_partial_years:              return boi_partial_rate
     return standard_rate
+
+
+class TaxLossCarryForward:
+    """Corporate income tax with tax-loss carry-forward (NOL).
+
+    Thai Revenue Code allows a year's loss to offset taxable profit for up to
+    the next 5 years (FIFO — oldest loss used first). Without this, a project
+    that loses money early then turns profitable is over-taxed, understating
+    the IRR. Feed each year's pre-tax profit (EBT) and effective rate in
+    chronological order; it returns that year's tax and carries losses forward.
+    """
+    def __init__(self, carryforward_years: int = 5):
+        self.years = max(0, int(carryforward_years))
+        self._lots: list[list[float]] = []   # [age_in_years, remaining_loss]
+
+    def tax(self, ebt: float, tax_eff: float) -> float:
+        if ebt < 0:
+            self._lots.append([0.0, -ebt])   # book a new loss
+            t = 0.0
+        else:
+            taxable = ebt
+            for lot in self._lots:            # offset with oldest losses first
+                if taxable <= 0:
+                    break
+                use = min(lot[1], taxable)
+                lot[1] -= use
+                taxable -= use
+            t = max(taxable, 0.0) * tax_eff
+        # age all lots by one year; drop depleted or expired ones
+        for lot in self._lots:
+            lot[0] += 1
+        self._lots = [lot for lot in self._lots
+                      if lot[1] > 1e-9 and lot[0] <= self.years]
+        return t
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -615,6 +670,12 @@ def build_result(*, engine_type: str, inputs: dict,
         "kpis":          kpis,
         "carbon":        carbon or {"rev_mb_yr": 0.0, "tco2_yr": 0.0},
     }
+    # Modified IRR — a robust fallback shown when the ordinary IRR is
+    # undefined (no sign change, e.g. a persistently loss-making base case).
+    ke = (wacc or {}).get("ke", (wacc or {}).get("wacc", 0.10))
+    wc = (wacc or {}).get("wacc", ke)
+    kpis.setdefault("equity_mirr",  mirr(fcfe, ke, ke))
+    kpis.setdefault("project_mirr", mirr(fcff, wc, wc))
     if extras:
         out["extras"] = extras
     return out

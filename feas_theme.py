@@ -337,8 +337,14 @@ def make_pill_badge(parent, text: str, *, kind: str = "pos"):
 def draw_sparkline(parent, values: list[float], width: int = 120,
                     height: int = 40, line_color: str = ACCENT,
                     fill_color: str | None = ACCENT_SOFT,
-                    bg: str = CARD) -> tk.Canvas:
-    """Tiny line chart with optional area fill below the line."""
+                    bg: str = CARD, baseline: float | None = None) -> tk.Canvas:
+    """Tiny line chart with optional area fill and a dashed reference line.
+
+    `baseline` draws a faint dashed horizontal marker (e.g. 0 for cumulative
+    cash flow → where the project turns from loss to profit; 1.30 for a DSCR
+    profile → the bankable threshold). The value range is expanded to always
+    include the baseline so the marker is meaningful.
+    """
     canvas = tk.Canvas(parent, width=width, height=height,
                         bg=bg, highlightthickness=0)
     if not values or len(values) < 2:
@@ -347,6 +353,9 @@ def draw_sparkline(parent, values: list[float], width: int = 120,
     pad = 4
     min_v = min(values)
     max_v = max(values)
+    if baseline is not None:                 # keep the reference line on-chart
+        min_v = min(min_v, baseline)
+        max_v = max(max_v, baseline)
     span  = max_v - min_v if max_v != min_v else 1.0
     n = len(values) - 1
 
@@ -365,6 +374,11 @@ def draw_sparkline(parent, values: list[float], width: int = 120,
         area = pts + [width - pad, height - pad, pad, height - pad]
         canvas.create_polygon(area, fill=fill_color, outline="",
                                 smooth=True)
+    # Dashed reference line (drawn under the data line)
+    if baseline is not None and min_v <= baseline <= max_v:
+        yb = y(baseline)
+        canvas.create_line(pad, yb, width - pad, yb,
+                            fill=TEXT_MUTED, width=1, dash=(2, 2))
     # Line
     canvas.create_line(*pts, fill=line_color, width=2, smooth=True,
                         capstyle="round")
@@ -376,7 +390,8 @@ def draw_sparkline(parent, values: list[float], width: int = 120,
 # ════════════════════════════════════════════════════════════════════════
 def make_kpi_card(parent, *, label: str, value: str, sparkline_values=None,
                     badge_text: str = "", badge_kind: str = "pos",
-                    accent_color: str = ACCENT, sub: str = ""):
+                    accent_color: str = ACCENT, sub: str = "",
+                    sparkline_baseline: float | None = None):
     """Fintech-style KPI tile with rounded corners."""
     if _HAS_CTK:
         card = ctk.CTkFrame(parent, fg_color=CARD, corner_radius=CARD_RADIUS,
@@ -409,7 +424,8 @@ def make_kpi_card(parent, *, label: str, value: str, sparkline_values=None,
                  else BADGE_NEG_BG if badge_kind == "neg"
                  else BADGE_INFO_BG)
         spark = draw_sparkline(body, sparkline_values, width=110, height=44,
-                                line_color=line, fill_color=soft, bg=CARD)
+                                line_color=line, fill_color=soft, bg=CARD,
+                                baseline=sparkline_baseline)
         spark.pack(side="right")
 
     if sub:
@@ -512,3 +528,7 @@ def mpl_style_ax(ax, title=None):
     ax.spines["bottom"].set_color(BORDER)
     ax.tick_params(colors=TEXT_SUB, labelsize=8)
     ax.grid(True, axis="y", color=DIVIDER, alpha=1.0, linestyle="-", linewidth=0.8)
+    # x-axis is calendar years → whole-number ticks/labels (e.g. 2025, not 2025.0)
+    from matplotlib.ticker import MaxNLocator, FuncFormatter
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{int(round(v))}"))

@@ -22,7 +22,8 @@ import copy
 from .shared import (
     KCAL_PER_KWH,
     irr_brentq, npv_calc, payback_period, dscr_year, bcr_calc, lcoe_thb_per_kwh,
-    debt_schedule_annuity, wacc_capm, boi_tax_rate, capex_breakdown,
+    debt_schedule_annuity, wacc_capm, boi_tax_rate, TaxLossCarryForward,
+    capex_breakdown,
     compute_msw_chemistry, carbon_credit_tver,
     ppa_escalated_rate, working_capital_recovery,
     build_result,
@@ -153,6 +154,8 @@ class WTEInputs:
     debt_tenor: int = 12
     discount_rate: float = 0.0625
     tax_rate: float = 0.20
+    depreciation_years: int = 10       # tax depreciation life (≤ project life)
+    nol_carryforward_years: int = 5    # tax-loss carry-forward (Thai: 5 yr)
     boi_full_years: int = 8
     boi_partial_years: int = 5
     boi_partial_rate: float = 0.10
@@ -399,8 +402,12 @@ def run_model(p: WTEInputs) -> dict:
     capex_total = cx["total_capex"]
     equity = cx["equity"]
     debt = cx["debt"]
-    dep = cx["total_proj_capex"] / p.project_life     # depreciate proj only, not WC/DSRA
+    # Straight-line tax depreciation over depreciation_years (≤ project life),
+    # on project CAPEX only (not WC/DSRA). Shorter life → earlier tax shield.
+    _dep_years = max(1, min(int(p.depreciation_years), p.project_life))
+    _dep_annual = cx["total_proj_capex"] / _dep_years
     ds = debt_schedule_annuity(debt, p.interest_rate, p.debt_tenor, p.project_life)
+    _tlcf = TaxLossCarryForward(p.nol_carryforward_years)
 
     rows = []
     fcfe = [-equity]
@@ -414,13 +421,14 @@ def run_model(p: WTEInputs) -> dict:
         op = _yearly_opex(p, y, capex_total, rev["fit_rev"], msw_ton_yr, raw)
         revenue = rev["revenue"]
         opex = op["total"]
+        dep = _dep_annual if y < _dep_years else 0.0
         ebitda = revenue - opex
         ebit = ebitda - dep
         interest, principal_repay, _ = ds[y]
         ebt = ebit - interest
         tax_eff = boi_tax_rate(y, p.boi_full_years, p.boi_partial_years,
                                 p.boi_partial_rate, p.tax_rate)
-        tax_amt = max(ebt, 0) * tax_eff
+        tax_amt = _tlcf.tax(ebt, tax_eff)   # with loss carry-forward
         npat = ebt - tax_amt
         ocf = npat + dep
         cfads = npat + dep + interest
@@ -564,6 +572,7 @@ def default_preset() -> WTEInputs:
         pdf_pct=0.02,
         debt_pct=0.70, interest_rate=0.06375,
         debt_tenor=12, discount_rate=0.0625,
+        depreciation_years=10, nol_carryforward_years=5,
         boi_full_years=8, boi_partial_years=5, boi_partial_rate=0.10,
     )
 
@@ -574,7 +583,7 @@ def default_preset() -> WTEInputs:
 INPUT_SECTIONS = [
     ("Plant Sizing", [
         ("project_name",          "Project Name",          "str",    ""),
-        ("cod_year",              "COD Year",              "int",    ""),
+        ("cod_year",              "COD Year",              "int",    "e.g. 2026"),
         ("project_life",          "Project Life",          "int",    "yr"),
         ("mw_gross",              "MW Gross (at generator)","float", "MW"),
         ("parasitic_load_pct",    "Parasitic Load",        "pct",    "% (12-18% typical)"),
@@ -659,11 +668,13 @@ INPUT_SECTIONS = [
         ("debt_tenor",          "Debt Tenor",       "int",   "yr"),
         ("discount_rate",       "Discount Rate",    "pct",   "%"),
         ("tax_rate",            "Tax Rate (CIT)",   "pct",   "%"),
+        ("depreciation_years",  "Depreciation life","int",   "yr"),
+        ("nol_carryforward_years","Loss carry-fwd", "int",   "yr"),
         ("boi_full_years",      "BOI 0% Years",     "int",   "yr"),
         ("boi_partial_years",   "BOI 50% Years",    "int",   "yr"),
         ("boi_partial_rate",    "BOI Partial Rate", "pct",   "%"),
         ("rf",                  "Risk-Free Rate",   "pct",   "%"),
-        ("beta_unlevered",      "β Unlevered",      "float", ""),
+        ("beta_unlevered",      "β Unlevered",      "float", "0.5–0.9"),
         ("mrp",                 "Market Risk Premium","pct", "%"),
         ("terminal_value",      "Terminal Value",   "float", "MB"),
     ]),

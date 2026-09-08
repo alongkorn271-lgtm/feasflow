@@ -18,7 +18,8 @@ import copy
 
 from .shared import (
     irr_brentq, npv_calc, payback_period, dscr_year, bcr_calc, lcoe_thb_per_kwh,
-    debt_schedule_annuity, wacc_capm, boi_tax_rate, capex_breakdown,
+    debt_schedule_annuity, wacc_capm, boi_tax_rate, TaxLossCarryForward,
+    capex_breakdown,
     carbon_credit_tver, ppa_escalated_rate, working_capital_recovery,
     build_result,
 )
@@ -137,6 +138,8 @@ class BiogasInputs:
     debt_tenor: int = 8
     discount_rate: float = 0.0625
     tax_rate: float = 0.20
+    depreciation_years: int = 10       # tax depreciation life (≤ project life)
+    nol_carryforward_years: int = 5    # tax-loss carry-forward (Thai: 5 yr)
     boi_full_years: int = 8
     boi_partial_years: int = 5
     boi_partial_rate: float = 0.10
@@ -404,8 +407,10 @@ def run_model(p: BiogasInputs) -> dict:
     )
     capex_total = cx["total_capex"]
     equity = cx["equity"]; debt = cx["debt"]
-    dep = cx["total_proj_capex"] / p.project_life
+    _dep_years = max(1, min(int(p.depreciation_years), p.project_life))
+    _dep_annual = cx["total_proj_capex"] / _dep_years
     ds = debt_schedule_annuity(debt, p.interest_rate, p.debt_tenor, p.project_life)
+    _tlcf = TaxLossCarryForward(p.nol_carryforward_years)
 
     if raw["mode"] == "multi":
         ww_proxy_tons = raw["m3_per_yr"] * 0.05
@@ -423,12 +428,13 @@ def run_model(p: BiogasInputs) -> dict:
         rev = _yearly_revenue(p, y, raw, carbon_mb_yr)
         op = _yearly_opex(p, y, capex_total, raw, rev["elec_rev"])
         revenue = rev["revenue"]; opex = op["total"]
+        dep = _dep_annual if y < _dep_years else 0.0
         ebitda = revenue - opex; ebit = ebitda - dep
         interest, principal_repay, _ = ds[y]
         ebt = ebit - interest
         tax_eff = boi_tax_rate(y, p.boi_full_years, p.boi_partial_years,
                                 p.boi_partial_rate, p.tax_rate)
-        tax_amt = max(ebt, 0) * tax_eff
+        tax_amt = _tlcf.tax(ebt, tax_eff)   # with loss carry-forward
         npat = ebt - tax_amt; ocf = npat + dep
         cfads = npat + dep + interest
         dscr = dscr_year(cfads, interest, principal_repay)
@@ -551,6 +557,7 @@ def default_preset() -> BiogasInputs:
         pdf_pct=0.02,
         debt_pct=0.675, interest_rate=0.0528,
         debt_tenor=8, discount_rate=0.0625,
+        depreciation_years=10, nol_carryforward_years=5,
         boi_full_years=8, boi_partial_years=5, boi_partial_rate=0.10,
     )
 
@@ -558,7 +565,7 @@ def default_preset() -> BiogasInputs:
 INPUT_SECTIONS = [
     ("Plant", [
         ("project_name", "Project Name", "str", ""),
-        ("cod_year", "COD Year", "int", ""),
+        ("cod_year", "COD Year", "int", "e.g. 2026"),
         ("project_life", "Project Life", "int", "yr"),
         ("mw_gross", "MW Gross", "float", "MW"),
         ("mw_net",   "MW Net",   "float", "MW"),
@@ -572,7 +579,7 @@ INPUT_SECTIONS = [
         ("feedstock_name", "Feedstock Name", "str", ""),
         ("cod_mg_per_l", "COD", "float", "mg/L"),
         ("ch4_pct", "% CH₄", "pct", "%"),
-        ("cod_removal_pct", "% COD Removal", "pct", ""),
+        ("cod_removal_pct", "% COD Removal", "pct", "%"),
         ("ch4_yield_m3_per_kg", "CH₄ Yield", "float", "m³/kg-COD"),
         ("biogas_lhv_mj_per_m3", "Biogas LHV", "float", "MJ/m³"),
         ("gas_engine_efficiency", "Gas Engine Eff", "pct", "%"),
@@ -582,17 +589,17 @@ INPUT_SECTIONS = [
     ]),
     ("Multi-Source Portfolio (B1)", [
         ("source_a_name",         "Source A Name",      "str",   ""),
-        ("source_a_m3_per_day",   "Source A m³/day",    "float", "m³"),
+        ("source_a_m3_per_day",   "Source A m³/day",    "float", "m³/day"),
         ("source_a_cod_mg_per_l", "Source A COD",       "float", "mg/L"),
         ("source_a_ch4_pct",      "Source A %CH₄",      "pct",   "%"),
         ("source_a_cost_thb_per_m3","Source A Cost",    "float", "฿/m³"),
         ("source_b_name",         "Source B Name",      "str",   ""),
-        ("source_b_m3_per_day",   "Source B m³/day",    "float", "(0 = unused)"),
+        ("source_b_m3_per_day",   "Source B m³/day",    "float", "m³/day (0=unused)"),
         ("source_b_cod_mg_per_l", "Source B COD",       "float", "mg/L"),
         ("source_b_ch4_pct",      "Source B %CH₄",      "pct",   "%"),
         ("source_b_cost_thb_per_m3","Source B Cost",    "float", "฿/m³"),
         ("source_c_name",         "Source C Name",      "str",   ""),
-        ("source_c_m3_per_day",   "Source C m³/day",    "float", "(0 = unused)"),
+        ("source_c_m3_per_day",   "Source C m³/day",    "float", "m³/day (0=unused)"),
         ("source_c_cod_mg_per_l", "Source C COD",       "float", "mg/L"),
         ("source_c_ch4_pct",      "Source C %CH₄",      "pct",   "%"),
         ("source_c_cost_thb_per_m3","Source C Cost",    "float", "฿/m³"),
@@ -647,11 +654,13 @@ INPUT_SECTIONS = [
         ("debt_tenor", "Debt Tenor", "int", "yr"),
         ("discount_rate", "Discount Rate", "pct", "%"),
         ("tax_rate", "Tax Rate", "pct", "%"),
+        ("depreciation_years", "Depreciation life", "int", "yr"),
+        ("nol_carryforward_years", "Loss carry-fwd", "int", "yr"),
         ("boi_full_years", "BOI 0%", "int", "yr"),
         ("boi_partial_years", "BOI 50%", "int", "yr"),
         ("boi_partial_rate", "BOI Partial", "pct", "%"),
         ("rf", "Risk-Free Rate", "pct", "%"),
-        ("beta_unlevered", "β Unlevered", "float", ""),
+        ("beta_unlevered", "β Unlevered", "float", "0.5–0.9"),
         ("mrp", "MRP", "pct", "%"),
         ("terminal_value", "Terminal Value", "float", "MB"),
     ]),

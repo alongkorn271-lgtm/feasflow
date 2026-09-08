@@ -23,7 +23,8 @@ if _PARENT not in sys.path:
 
 from .shared import (
     irr_brentq, npv_calc, payback_period, dscr_year, bcr_calc, lcoe_thb_per_kwh,
-    debt_schedule_annuity, wacc_capm, boi_tax_rate, capex_breakdown,
+    debt_schedule_annuity, wacc_capm, boi_tax_rate, TaxLossCarryForward,
+    capex_breakdown,
     ppa_escalated_rate, working_capital_recovery,
     build_result,
 )
@@ -139,6 +140,8 @@ class SolarPVInputs:
     debt_tenor: int = 12
     discount_rate: float = 0.0625
     tax_rate: float = 0.20
+    depreciation_years: int = 10       # tax depreciation life (≤ project life)
+    nol_carryforward_years: int = 5    # tax-loss carry-forward (Thai: 5 yr)
     boi_full_years: int = 8
     boi_partial_years: int = 5
     boi_partial_rate: float = 0.10
@@ -296,8 +299,10 @@ def run_model(p: SolarPVInputs) -> dict:
     )
     capex_total = cx["total_capex"]
     equity = cx["equity"]; debt = cx["debt"]
-    dep = cx["total_proj_capex"] / p.project_life
+    _dep_years = max(1, min(int(p.depreciation_years), p.project_life))
+    _dep_annual = cx["total_proj_capex"] / _dep_years
     ds = debt_schedule_annuity(debt, p.interest_rate, p.debt_tenor, p.project_life)
+    _tlcf = TaxLossCarryForward(p.nol_carryforward_years)
 
     rows = []; fcfe = [-equity]; fcff = [-capex_total]
     cum_fcfe_list, cum_fcff_list = [], []
@@ -347,13 +352,14 @@ def run_model(p: SolarPVInputs) -> dict:
 
         opex = om + sga + insurance + pdf + cleaning_cost + land_cost + inverter_replace_cost
 
+        dep = _dep_annual if y < _dep_years else 0.0
         ebitda = revenue - opex
         ebit = ebitda - dep
         interest, principal_repay, _ = ds[y]
         ebt = ebit - interest
         tax_eff = boi_tax_rate(y, p.boi_full_years, p.boi_partial_years,
                                 p.boi_partial_rate, p.tax_rate)
-        tax_amt = max(ebt, 0) * tax_eff
+        tax_amt = _tlcf.tax(ebt, tax_eff)   # with loss carry-forward
         npat = ebt - tax_amt
         ocf = npat + dep
         cfads = npat + dep + interest
@@ -488,6 +494,7 @@ def default_preset() -> SolarPVInputs:
         pdf_pct=0.02,
         debt_pct=0.70, interest_rate=0.06,
         debt_tenor=12, discount_rate=0.0625,
+        depreciation_years=10, nol_carryforward_years=5,
         boi_full_years=8, boi_partial_years=5, boi_partial_rate=0.10,
     )
 
@@ -495,7 +502,7 @@ def default_preset() -> SolarPVInputs:
 INPUT_SECTIONS = [
     ("Plant", [
         ("project_name", "Project Name", "str", ""),
-        ("cod_year", "COD Year", "int", ""),
+        ("cod_year", "COD Year", "int", "e.g. 2026"),
         ("project_life", "Project Life", "int", "yr"),
         ("mw_gross", "MW Gross", "float", "MW"),
         ("mw_net",   "MW Net",   "float", "MW"),
@@ -522,7 +529,7 @@ INPUT_SECTIONS = [
         ("curtailment_pct",        "Curtailment",      "pct",   "% (0 baseline)"),
     ]),
     ("Inverter Replacement (S1)", [
-        ("inverter_replace_year", "Replace year",        "int",   ""),
+        ("inverter_replace_year", "Replace year",        "int",   "ปีที่ (จากเริ่ม)"),
         ("inverter_replace_pct_of_capex","Replace cost", "pct",   "% of CAPEX"),
         ("inverter_replace_downtime_days","Downtime",    "int",   "days"),
     ]),
@@ -536,8 +543,8 @@ INPUT_SECTIONS = [
         ("offpeak_rate", "Off-Peak Rate", "float", "฿/kWh"),
         ("peak_start_hour", "Peak Start Hour", "int", "0-23"),
         ("peak_end_hour", "Peak End Hour", "int", "0-24"),
-        ("weekdays_per_year", "Weekdays/yr", "int", ""),
-        ("weekend_days_per_year", "Weekend/yr", "int", ""),
+        ("weekdays_per_year", "Weekdays/yr", "int", "days/yr"),
+        ("weekend_days_per_year", "Weekend/yr", "int", "days/yr"),
         ("cpi_escalation", "CPI Escalation", "pct", "%/yr"),
         ("cpi_linked_fraction", "CPI-linked", "pct", "%"),
     ]),
@@ -569,11 +576,13 @@ INPUT_SECTIONS = [
         ("debt_tenor", "Debt Tenor", "int", "yr"),
         ("discount_rate", "Discount Rate", "pct", "%"),
         ("tax_rate", "Tax Rate", "pct", "%"),
+        ("depreciation_years", "Depreciation life", "int", "yr"),
+        ("nol_carryforward_years", "Loss carry-fwd", "int", "yr"),
         ("boi_full_years", "BOI 0%", "int", "yr"),
         ("boi_partial_years", "BOI 50%", "int", "yr"),
         ("boi_partial_rate", "BOI Partial", "pct", "%"),
         ("rf", "Risk-Free Rate", "pct", "%"),
-        ("beta_unlevered", "β Unlevered", "float", ""),
+        ("beta_unlevered", "β Unlevered", "float", "0.5–0.9"),
         ("mrp", "MRP", "pct", "%"),
         ("terminal_value", "Terminal Value", "float", "MB"),
     ]),

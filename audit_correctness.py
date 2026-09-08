@@ -29,6 +29,7 @@ from engines.shared import (
     debt_schedule_annuity, wacc_capm,
     dulong_hhv, lhv_from_hhv,
     carbon_credit_tver,
+    mirr, TaxLossCarryForward,
 )
 
 # ── test harness ──────────────────────────────────────────────────────────
@@ -510,6 +511,57 @@ check("CH4 = 36.575 m3/m3", ch4_calc, 36.575, tol_abs=1e-3)
 check("Biogas = 76.198 m3/m3", biogas_calc, 76.1979, tol_abs=1e-3)
 check("kWh/m3 feedstock = 153.7", kwh_calc, 153.71, tol_abs=0.1)
 
+
+# ==========================================================================
+# MIRR (modified IRR) — Excel MIRR reference values
+# ==========================================================================
+section("MIRR")
+# Excel: MIRR([-1000,300,300,300,300], 10%, 12%) = 8.980%  (finance=reinvest not
+# equal here; use a known simple case instead)
+# Case: [-100, 0, 0, 200] reinvest=0, finance=0 -> (200/100)^(1/3)-1 = 25.99%
+check("MIRR simple 2x over 3 yr", mirr([-100, 0, 0, 200], 0.0, 0.0),
+      2.0 ** (1 / 3) - 1, tol_abs=1e-4)
+# reinvest 10%: FV of +200 at yr3 stays 200 (last flow), pv_neg=-100
+check("MIRR reinvest last-year flow", mirr([-100, 0, 0, 200], 0.08, 0.10),
+      2.0 ** (1 / 3) - 1, tol_abs=1e-4)
+# all-negative -> undefined
+check("MIRR all-negative = None", mirr([-100, -10, -10], 0.08, 0.10) is None,
+      True, tol_abs=0)
+
+# ==========================================================================
+# TAX-LOSS CARRY-FORWARD (NOL) — Thai 5-year rule
+# ==========================================================================
+section("Tax loss carry-forward (NOL)")
+# Year 1 loss of 100, then profit 100 next year at 20% -> loss fully shelters
+# it, so tax year 2 = 0 (vs 20 without NOL).
+t = TaxLossCarryForward(5)
+tax1 = t.tax(-100.0, 0.20)      # loss year
+tax2 = t.tax(100.0, 0.20)       # profit fully offset by carried loss
+check("NOL year1 (loss) tax = 0", tax1, 0.0, tol_abs=1e-9)
+check("NOL year2 offset -> tax = 0", tax2, 0.0, tol_abs=1e-9)
+# Loss 100, then profit 150 -> 50 taxable -> tax 10
+t2 = TaxLossCarryForward(5)
+t2.tax(-100.0, 0.20)
+tax_b = t2.tax(150.0, 0.20)
+check("NOL partial offset (150-100)*20% = 10", tax_b, 10.0, tol_abs=1e-6)
+# Expiry: loss expires after 5 yrs -> profit in year 7 fully taxed
+t3 = TaxLossCarryForward(5)
+t3.tax(-100.0, 0.20)
+for _ in range(5):
+    t3.tax(0.0, 0.20)           # 5 zero years -> loss expires
+tax_exp = t3.tax(100.0, 0.20)   # no shelter left
+check("NOL expiry after 5 yr -> tax = 20", tax_exp, 20.0, tol_abs=1e-6)
+
+# ==========================================================================
+# DEPRECIATION SCHEDULE — sum of annual dep = depreciable base
+# ==========================================================================
+section("Depreciation schedule")
+proj_capex = 1000.0
+dep_years, life = 10, 20
+dep_annual = proj_capex / max(1, min(dep_years, life))
+total_dep = sum(dep_annual if y < dep_years else 0.0 for y in range(life))
+check("Depreciation over 10 yr sums to CAPEX", total_dep, proj_capex, tol_abs=1e-6)
+check("Annual dep = CAPEX/10", dep_annual, 100.0, tol_abs=1e-6)
 
 # ==========================================================================
 # SUMMARY

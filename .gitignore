@@ -25,5 +25,13 @@ desktop.ini
 # Streamlit cache
 .streamlit/secrets.toml
 
+# PyInstaller build artifacts
+build/
+dist/
+*.manifest
+
+# Inno Setup installer output
+Output/
+
 # Local launch config (kept out of git)
 .claude/

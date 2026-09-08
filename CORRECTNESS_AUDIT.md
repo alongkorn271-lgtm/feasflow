@@ -407,3 +407,45 @@ PASS  Monte Carlo p10/p50/p90 of Uniform[10,50] ~= 14/30/46
 PASS  WTE ke > WACC (CAPM consistency)
 SUMMARY: Passed 50 / Failed 0 / Total 50  ✅
 ```
+
+---
+
+## Realism refinements — 2026-09-07 (added after v1 audit)
+
+These are **modelling improvements**, not bug fixes: the original formulas were
+correct, but three assumptions were simplified. All make the result more
+realistic and are user-adjustable. Audit now: **59 PASS / 0 FAIL**.
+
+### R1 — Separate tax depreciation life (`depreciation_years`)
+- **Before:** straight-line over the full `project_life` (20–25 yr).
+- **After:** straight-line over `depreciation_years` (default 10, capped at
+  project life) on project CAPEX only.
+- **Why:** Thai tax depreciation is faster than the operating life (machinery
+  5–10 yr, buildings 20 yr).
+- **Note (important interaction):** with a long BOI tax holiday, front-loading
+  depreciation into the 0%-tax years *wastes* the shield, so a shorter life can
+  *lower* IRR (WTE base case: 6.50% → 5.81%). This is a correct, realistic
+  interaction, not an error. Set `depreciation_years = project_life` to recover
+  the old behaviour.
+
+### R2 — Tax-loss carry-forward / NOL (`nol_carryforward_years`)
+- **Before:** `tax = max(EBT,0) × rate` each year independently — a loss year
+  gave 0 tax but the loss was lost forever.
+- **After:** `TaxLossCarryForward` (shared.py) carries a year's loss forward up
+  to 5 years (Thai Revenue Code), oldest-first, to shelter later profit.
+- **Impact:** projects with early losses then profits are no longer over-taxed.
+
+### R3 — Modified IRR fallback (MIRR)
+- **New:** `mirr()` (shared.py) added to `kpis` as `equity_mirr` / `project_mirr`.
+- **Why:** the ordinary IRR is undefined when cash flows never change sign
+  (e.g. a persistently loss-making base case → RDF). The hero card now shows
+  **MIRR** (labelled "MIRR · IRR undefined") instead of a misleading 0.00%.
+- MIRR uses cost of equity (equity) / WACC (project) as both finance and
+  reinvestment rate.
+
+### Deliberately NOT changed (conventions, not correctness)
+- **Mid-year discounting** — would shift every NPV/IRR; a convention choice, not
+  more correct. Left as end-of-year.
+- **Working-capital change inside CFADS** — CFADS is kept as EBITDA − tax
+  (a standard proxy); WC is still modelled as an up-front outlay recovered at
+  project end.

@@ -26,6 +26,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from engines import REGISTRY
+from feas_help import guide_for
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -351,7 +352,9 @@ st.markdown(f"""
 def render_input(key: str, label: str, ftype: str, hint: str, current):
     """Render appropriate Streamlit widget; return new value."""
     widget_key = f"inp__{st.session_state.engine_code}__{key}"
-    help_text = hint if hint else None
+    # Rich guidance (meaning + typical range + impact) shown via the ⓘ tooltip,
+    # same content as the desktop app; falls back to the short inline hint.
+    help_text = guide_for(key, label, hint) or (hint if hint else None)
 
     if ftype == "bool":
         return st.checkbox(label, value=bool(current),
@@ -427,7 +430,13 @@ rows = results["rows"]
 # ════════════════════════════════════════════════════════════════════════
 with right_col:
     # ── Status banner ────────────────────────────────────────────────
-    eirr = k.get("equity_irr") or 0
+    # Use IRR; if undefined fall back to MIRR; if still none the project never
+    # turns cash-positive → treat as a loss (not a misleading "marginal").
+    eirr = k.get("equity_irr")
+    if eirr is None:
+        eirr = k.get("equity_mirr")
+    if eirr is None:
+        eirr = -1.0
     dscr = k.get("dscr_min")
     hurdle = 0.12
     if eirr < 0:
@@ -471,11 +480,21 @@ with right_col:
         diff = v - target
         return f"{diff:+.2f} vs 1.30"
 
+    def irr_metric(col, label, irr, mirr_val):
+        # Fall back to MIRR when the ordinary IRR is undefined (no sign change,
+        # e.g. a persistently loss-making base case) instead of showing n/a.
+        if irr is not None:
+            col.metric(label, pct(irr), delta=delta_for_irr(irr))
+        elif mirr_val is not None:
+            col.metric(f"{label} · MIRR", pct(mirr_val),
+                       delta=delta_for_irr(mirr_val))
+        else:
+            col.metric(label, "n/a", delta="no positive cash flow",
+                       delta_color="off")
+
     r1c1, r1c2, r1c3 = st.columns(3)
-    r1c1.metric("Project IRR", pct(k["project_irr"]),
-                 delta=delta_for_irr(k["project_irr"]))
-    r1c2.metric("Equity IRR", pct(k["equity_irr"]),
-                 delta=delta_for_irr(k["equity_irr"]))
+    irr_metric(r1c1, "Project IRR", k.get("project_irr"), k.get("project_mirr"))
+    irr_metric(r1c2, "Equity IRR",  k.get("equity_irr"),  k.get("equity_mirr"))
     r1c3.metric("Equity NPV", f"{k['equity_npv']:.0f} MB",
                  delta=f"@ {params.discount_rate*100:.2f}%",
                  delta_color="off")

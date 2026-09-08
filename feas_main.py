@@ -48,8 +48,12 @@ from feas_theme import (
     F_MONO, F_MONO_B, F_KPI,
     SIDEBAR_WIDTH, SIDEBAR_ITEM_HEIGHT, TOPBAR_HEIGHT,
 )
+from feas_help import guide_for
 
 DEBOUNCE_MS = 500
+APP_NAME    = "FeasFlow"
+APP_VERSION = "2.1"
+APP_AUTHOR  = "Alongkorn Chanta"
 ENGINE_ORDER = ["rdf", "wte", "rdf_wte", "biogas", "solar"]
 
 # Display names for sidebar items
@@ -65,8 +69,11 @@ ENGINE_LABELS = {
 # ════════════════════════════════════════════════════════════════════════
 class ScrollableFrame(tk.Frame):
     """Scrollable container with a modern CTkScrollbar (or ttk fallback)."""
+    _instances: list = []      # all live scroll frames (for mouse-wheel routing)
+
     def __init__(self, master, bg=BG, **kw):
         super().__init__(master, bg=bg, **kw)
+        ScrollableFrame._instances.append(self)
         self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0)
 
         # Use CTkScrollbar for modern rounded thumb when customtkinter available
@@ -100,22 +107,106 @@ class ScrollableFrame(tk.Frame):
         self.canvas.bind("<Configure>",
                           lambda e: self.canvas.itemconfig(self._win, width=e.width))
 
-        def on_mw(e):
-            w = self.winfo_containing(e.x_root, e.y_root)
-            if w and str(w).startswith(str(self.canvas)):
-                self.canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-        self.canvas.bind_all("<MouseWheel>", on_mw)
+        # One global wheel handler routes scrolling to whichever scroll frame
+        # the pointer is over (supports several ScrollableFrames at once).
+        self.canvas.bind_all("<MouseWheel>", ScrollableFrame._on_wheel_global)
+
+    @classmethod
+    def _on_wheel_global(cls, e):
+        try:
+            target = e.widget.winfo_containing(e.x_root, e.y_root)
+        except Exception:
+            target = None
+        if target is None:
+            return
+        tstr = str(target)
+        for inst in list(cls._instances):
+            try:
+                if not inst.canvas.winfo_exists():
+                    cls._instances.remove(inst); continue
+            except Exception:
+                continue
+            if tstr.startswith(str(inst.canvas)):
+                inst.canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+                return
+
+
+# ════════════════════════════════════════════════════════════════════════
+class Tooltip:
+    """Hover tooltip: ชี้เมาส์ค้างที่ widget ~0.5 วิ แล้วโชว์กล่องคำอธิบาย.
+    ใช้กล่องเดียวร่วมกันทั้งแอป (แสดงทีละอัน)."""
+    _tip: Optional[tk.Toplevel] = None
+
+    def __init__(self, widget, text, delay=450, wrap=360):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.wrap = wrap
+        self._after: Optional[str] = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _e=None):
+        self._cancel()
+        self._after = self.widget.after(self.delay, self._show)
+
+    def _cancel(self):
+        if self._after is not None:
+            try: self.widget.after_cancel(self._after)
+            except Exception: pass
+            self._after = None
+
+    def _show(self):
+        Tooltip._destroy_current()
+        try:
+            x = self.widget.winfo_rootx() + 18
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        except Exception:
+            return
+        tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        try: tw.wm_attributes("-topmost", True)
+        except Exception: pass
+        tw.wm_geometry(f"+{x}+{y}")
+        # white box, black text, thin grey border via outer frame
+        outer = tk.Frame(tw, bg="#94A3B8")
+        outer.pack()
+        tk.Label(outer, text=self.text, justify="left", bg="#FFFFFF",
+                 fg="#111827", font=(FF, 9), wraplength=self.wrap,
+                 padx=11, pady=9, bd=0).pack(padx=1, pady=1)
+        Tooltip._tip = tw
+
+    def _hide(self, _e=None):
+        self._cancel()
+        Tooltip._destroy_current()
+
+    @classmethod
+    def _destroy_current(cls):
+        if cls._tip is not None:
+            try: cls._tip.destroy()
+            except Exception: pass
+            cls._tip = None
 
 
 # ════════════════════════════════════════════════════════════════════════
 class FeasApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Feasibility Studio")
+        self.root.title(f"FeasFlow · Feasibility Studio  —  by {APP_AUTHOR}")
         self.root.geometry("1820x1040")
         self.root.minsize(1440, 820)
 
         apply_theme(root)
+
+        # Display scale (1.0 = 100%, 1.25 = 125%). Fixed-pixel widths below are
+        # multiplied by this so they keep the same *physical* size at any Windows
+        # display-scaling setting — otherwise DPI-aware text overflows fixed
+        # panels (e.g. the input column, clipping the unit labels on the right).
+        try:
+            self.ui_scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+        except Exception:
+            self.ui_scale = 1.0
 
         # State
         self.current_engine_code: str = "wte"
@@ -126,6 +217,9 @@ class FeasApp:
         self._recalc_after: Optional[str] = None
         self._loading_params = False
         self._sparkline_history: dict[str, list[float]] = {}
+        self._dirty = False                 # inputs changed since last Calculate
+        self.calc_btn: Optional[tk.Button] = None
+        self._chart_job: Optional[str] = None   # pending deferred chart draw
 
         # Build UI
         self._build_layout()
@@ -134,6 +228,10 @@ class FeasApp:
         self._build_content()
 
         self._load_engine(self.current_engine_code)
+
+        # Keyboard shortcuts for Calculate (in addition to the button)
+        self.root.bind("<F5>", lambda e: self._on_calculate())
+        self.root.bind("<Control-Return>", lambda e: self._on_calculate())
 
     # ───────────────────────────────────────────────────────────────
     def _build_layout(self):
@@ -151,7 +249,10 @@ class FeasApp:
         right = tk.Frame(self.root, bg=BG)
         right.pack(side="left", fill="both", expand=True)
 
-        self.topbar_frame = tk.Frame(right, bg=BG, height=TOPBAR_HEIGHT)
+        # Scale the top-bar height with the display DPI so the big title + the
+        # two-line description/project subtitle are never clipped at 125/150%.
+        self.topbar_frame = tk.Frame(right, bg=BG,
+                                     height=int((TOPBAR_HEIGHT + 40) * self.ui_scale))
         self.topbar_frame.pack(side="top", fill="x")
         self.topbar_frame.pack_propagate(False)
 
@@ -197,10 +298,53 @@ class FeasApp:
         # Spacer to push version to bottom
         tk.Frame(self.sidebar_frame, bg=SIDEBAR_BG).pack(fill="both", expand=True)
 
-        # Version footer
-        tk.Label(self.sidebar_frame, text="v2.1  ·  multi-engine",
+        # Footer: author credit (click for About) + version
+        footer = tk.Frame(self.sidebar_frame, bg=SIDEBAR_BG)
+        footer.pack(side="bottom", fill="x", pady=(0, 14))
+        tk.Label(footer, text=f"v{APP_VERSION}  ·  multi-engine",
                   font=F_TINY, bg=SIDEBAR_BG, fg=TEXT_MUTED
-                  ).pack(side="bottom", pady=16)
+                  ).pack()
+        credit = tk.Label(footer, text=f"by {APP_AUTHOR}",
+                          font=(FF, 9, "bold"), bg=SIDEBAR_BG, fg=TEXT_SUB,
+                          cursor="hand2")
+        credit.pack(pady=(2, 0))
+        credit.bind("<Button-1>", lambda _e: self._show_about())
+
+    def _show_about(self):
+        """About dialog — like a normal desktop app (Help ▸ About)."""
+        win = tk.Toplevel(self.root)
+        win.title(f"About {APP_NAME}")
+        win.configure(bg=CARD)
+        win.resizable(False, False)
+        win.transient(self.root)
+        pad = tk.Frame(win, bg=CARD)
+        pad.pack(padx=28, pady=24)
+        tk.Label(pad, text="◢  FeasFlow", font=(FF, 20, "bold"),
+                  bg=CARD, fg=ACCENT).pack(anchor="w")
+        tk.Label(pad, text="Power-plant feasibility studio",
+                  font=F_BODY, bg=CARD, fg=TEXT_SUB).pack(anchor="w", pady=(2, 14))
+        for k, v in [("Version", f"{APP_VERSION}  (multi-engine)"),
+                      ("Engines", "RDF · WTE · RDF+WTE · Biogas · Solar PV"),
+                      ("Author", APP_AUTHOR),
+                      ("Year", "2026")]:
+            row = tk.Frame(pad, bg=CARD); row.pack(fill="x", pady=2)
+            tk.Label(row, text=f"{k}", font=F_BODY_B, bg=CARD, fg=TEXT,
+                      width=9, anchor="w").pack(side="left")
+            tk.Label(row, text=v, font=F_BODY, bg=CARD, fg=TEXT_SUB,
+                      anchor="w").pack(side="left")
+        tk.Label(pad, text=f"© 2026 {APP_AUTHOR}. All rights reserved.",
+                  font=F_TINY, bg=CARD, fg=TEXT_MUTED).pack(anchor="w", pady=(16, 12))
+        btn = tk.Button(pad, text="Close", command=win.destroy,
+                         bg=ACCENT, fg="white", font=F_BODY_B, relief="flat",
+                         bd=0, padx=20, pady=6, cursor="hand2",
+                         activebackground=ACCENT_DK, activeforeground="white")
+        btn.pack(anchor="e")
+        win.update_idletasks()
+        # centre over the main window
+        x = self.root.winfo_rootx() + (self.root.winfo_width()  - win.winfo_width())  // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{max(x,0)}+{max(y,0)}")
+        win.grab_set()
 
     def _refresh_sidebar(self):
         for w in self.sidebar_frame.winfo_children():
@@ -250,8 +394,12 @@ class FeasApp:
                            highlightbackground=BORDER, highlightthickness=1)
             return b
 
-        text_btn(right, "📊 Export Excel", self._export_excel,
-                  primary=True).pack(side="right", padx=(6, 0))
+        # Primary action = Calculate (rightmost, most prominent).
+        # Results now update only when this is pressed, not on every keystroke.
+        self.calc_btn = text_btn(right, "▶  Calculate", self._on_calculate,
+                                  primary=True)
+        self.calc_btn.pack(side="right", padx=(6, 0))
+        text_btn(right, "📊 Export Excel", self._export_excel).pack(side="right", padx=4)
         text_btn(right, "PDF", self._export_pdf).pack(side="right", padx=4)
         text_btn(right, "Save", self._save_scenario).pack(side="right", padx=4)
         text_btn(right, "Load", self._load_scenario).pack(side="right", padx=4)
@@ -274,36 +422,44 @@ class FeasApp:
     # Content area
     # ───────────────────────────────────────────────────────────────
     def _build_content(self):
-        # Single scrollable outer — KPI hero on top, then 2-col below
-        self.outer_scroll = ScrollableFrame(self.content_frame, bg=BG)
-        self.outer_scroll.pack(fill="both", expand=True)
+        # Top: alert + KPI rows — fixed, always visible above the columns.
+        top = tk.Frame(self.content_frame, bg=BG)
+        top.pack(side="top", fill="x")
 
-        outer = self.outer_scroll.inner
-
-        # Status alert
-        self.alert_holder = tk.Frame(outer, bg=BG)
+        self.alert_holder = tk.Frame(top, bg=BG)
         self.alert_holder.pack(fill="x", padx=24, pady=(12, 4))
-
-        # Hero KPI row (3 large cards)
-        self.hero_kpi_row = tk.Frame(outer, bg=BG)
+        self.hero_kpi_row = tk.Frame(top, bg=BG)
         self.hero_kpi_row.pack(fill="x", padx=24, pady=(8, 8))
-
-        # Secondary KPI row (6 smaller cards)
-        self.sec_kpi_row = tk.Frame(outer, bg=BG)
+        self.sec_kpi_row = tk.Frame(top, bg=BG)
         self.sec_kpi_row.pack(fill="x", padx=24, pady=(0, 12))
 
-        # Two-column area: inputs (left) + everything else (right)
-        cols = tk.Frame(outer, bg=BG)
-        cols.pack(fill="both", expand=True, padx=24, pady=(0, 24))
+        # Below: DRAGGABLE two-column area filling the remaining height.
+        # Drag the grey bar (with the small handle) between the columns to
+        # widen the input panel. Each column scrolls internally — the
+        # PanedWindow needs a bounded height, so it must NOT sit inside a
+        # vertical scroll canvas (that made both columns collapse to 0px).
+        cols = tk.PanedWindow(
+            self.content_frame, orient="horizontal", bg=BORDER,
+            sashwidth=int(8 * self.ui_scale), sashrelief="raised",
+            showhandle=True, handlesize=int(9 * self.ui_scale),
+            borderwidth=0, opaqueresize=True)
+        cols.pack(side="top", fill="both", expand=True, padx=24, pady=(0, 20))
+        self.cols_paned = cols
 
-        self.input_col = tk.Frame(cols, bg=BG, width=440)
-        self.input_col.pack(side="left", fill="y", padx=(0, 12))
-        self.input_col.pack_propagate(False)
+        self.input_col = tk.Frame(cols, bg=BG)
         self.input_scroll = ScrollableFrame(self.input_col, bg=BG)
         self.input_scroll.pack(fill="both", expand=True)
 
-        self.output_col = tk.Frame(cols, bg=BG)
-        self.output_col.pack(side="right", fill="both", expand=True)
+        out_wrap = tk.Frame(cols, bg=BG)
+        self.output_scroll = ScrollableFrame(out_wrap, bg=BG)
+        self.output_scroll.pack(fill="both", expand=True)
+        self.output_col = self.output_scroll.inner   # cards render into this
+
+        cols.add(self.input_col, minsize=int(320 * self.ui_scale),
+                 width=int(500 * self.ui_scale), stretch="never",
+                 sticky="nsew", padx=4)
+        cols.add(out_wrap, minsize=int(380 * self.ui_scale),
+                 stretch="always", sticky="nsew", padx=4)
 
     # ───────────────────────────────────────────────────────────────
     # Engine loader
@@ -348,8 +504,14 @@ class FeasApp:
     def _make_field(self, parent, key, label, ftype, hint):
         row = tk.Frame(parent, bg=CARD)
         row.pack(fill="x", pady=3)
-        ttk.Label(row, text=label, style="Card.TLabel", width=22, anchor="w"
-                  ).pack(side="left")
+        lbl = ttk.Label(row, text=label, style="Card.TLabel", width=22,
+                        anchor="w")
+        lbl.pack(side="left")
+        # Hover guidance (Thai + English terms) for this parameter
+        guide = guide_for(key, label, hint)
+        if guide:
+            lbl.configure(cursor="question_arrow")
+            Tooltip(lbl, guide)
         if ftype == "bool":
             var = tk.BooleanVar()
             self.entries[key] = var
@@ -359,6 +521,7 @@ class FeasApp:
                                  selectcolor=CARD,
                                  command=lambda k=key: self._on_input_change(k))
             cb.pack(side="left", padx=4)
+            if guide: Tooltip(cb, guide)
         else:
             var = tk.StringVar()
             self.entries[key] = var
@@ -369,7 +532,10 @@ class FeasApp:
             else:
                 w = ttk.Entry(row, textvariable=var, width=16)
             w.pack(side="left", padx=4)
+            if guide: Tooltip(w, guide)
             var.trace_add("write", lambda *a, k=key: self._on_input_change(k))
+            # Enter applies the change immediately (same as the Calculate button)
+            w.bind("<Return>", lambda e: self._on_calculate())
         if hint:
             ttk.Label(row, text=hint, style="CardSub.TLabel"
                       ).pack(side="left", padx=(4, 0))
@@ -438,49 +604,84 @@ class FeasApp:
     # Recalc
     # ───────────────────────────────────────────────────────────────
     def _on_input_change(self, key):
+        # Manual-calculate model: editing a field no longer recomputes live.
+        # It only flags that a recalculation is pending; the user presses
+        # Calculate (or Enter) to apply. Avoids the confusing constant flicker.
         if self._loading_params: return
-        self._schedule_recalc()
+        self._mark_dirty()
 
-    def _schedule_recalc(self):
+    def _on_calculate(self):
+        """Calculate button / Enter key — apply current inputs and recompute."""
+        self._recalc(immediate=True)
+
+    def _mark_dirty(self):
+        """Show that inputs changed and results are stale until Calculate."""
+        if self._dirty: return
+        self._dirty = True
+        if self.calc_btn is not None:
+            self.calc_btn.configure(
+                text="●  Calculate", bg=WARNING, activebackground=WARNING,
+                fg="white", activeforeground="white")
+
+    def _clear_dirty(self):
+        """Results are back in sync with the inputs."""
+        self._dirty = False
+        if self.calc_btn is not None:
+            self.calc_btn.configure(
+                text="▶  Calculate", bg=ACCENT, activebackground=ACCENT_DK,
+                fg="white", activeforeground="white")
+
+    def _recalc(self, immediate=False):
         if self._recalc_after is not None:
             try: self.root.after_cancel(self._recalc_after)
             except Exception: pass
-        self._recalc_after = self.root.after(DEBOUNCE_MS, self._recalc)
-
-    def _recalc(self, immediate=False):
-        self._recalc_after = None
+            self._recalc_after = None
         if not self._read_inputs():
+            messagebox.showwarning(
+                "ค่าไม่ถูกต้อง",
+                "มีช่องที่กรอกค่าไม่ถูกต้อง (เช่น เว้นว่าง หรือไม่ใช่ตัวเลข)\n"
+                "กรุณาตรวจสอบแล้วกด Calculate อีกครั้ง")
             return
         try:
             self.results = self.current_engine.run_model(self.params)
         except Exception as e:
             print(f"Engine error: {e}")
+            messagebox.showerror("คำนวณไม่สำเร็จ", str(e))
             return
         # Track sparkline history per metric
         self._track_sparklines()
         self._update_topbar()
         self._render_all()
+        self._clear_dirty()
+
+    # Sparklines show a MEANINGFUL project time-series (not edit history):
+    #  • return / NPV / payback cards → cumulative equity cash flow
+    #    (dips negative = investment, crosses the dashed 0 line = paid back)
+    #  • DSCR cards → the year-by-year DSCR profile vs the dashed 1.30 bank line
+    #  • LCOE / BCR / WACC → no natural series → no sparkline
+    _SPARK_BASELINE = {
+        "project_irr": 0.0, "equity_irr": 0.0, "equity_npv": 0.0, "payback": 0.0,
+        "dscr_min": 1.30, "dscr_avg": 1.30,
+    }
 
     def _track_sparklines(self):
-        """Maintain a rolling history (last 12 recalcs) per KPI for sparklines."""
-        if not self.results: return
-        k = self.results["kpis"]
-        metrics = {
-            "project_irr": (k.get("project_irr") or 0) * 100,
-            "equity_irr":  (k.get("equity_irr")  or 0) * 100,
-            "equity_npv":  k.get("equity_npv") or 0,
-            "dscr_min":    k.get("dscr_min") or 0,
-            "dscr_avg":    k.get("dscr_avg") or 0,
-            "lcoe":        k.get("lcoe_thb_per_kwh") or k.get("lco_pellet_thb_per_ton") or 0,
-            "bcr":         k.get("bcr") or 0,
-            "payback":     k.get("payback_equity") or 0,
-            "wacc":        (k.get("wacc") or 0) * 100,
+        """Build per-KPI sparkline series from the current project cash flows."""
+        self._sparkline_history = {}
+        if not self.results:
+            return
+        rows = self.results.get("rows", [])
+        cum = list(self.results.get("cum_fcfe", []))        # the return/payback story
+        dscr = [r["dscr"] for r in rows
+                if r.get("dscr") is not None and r["dscr"] < 1e8]
+        self._sparkline_history = {
+            "project_irr": cum, "equity_irr": cum,
+            "equity_npv": cum,  "payback": cum,
+            "dscr_min": dscr,   "dscr_avg": dscr,
+            "lcoe": [], "bcr": [], "wacc": [],              # no time-series
         }
-        for key, val in metrics.items():
-            hist = self._sparkline_history.setdefault(key, [])
-            hist.append(val)
-            if len(hist) > 12:
-                hist.pop(0)
+
+    def _spark_baseline(self, key):
+        return self._SPARK_BASELINE.get(key)
 
     # ───────────────────────────────────────────────────────────────
     # Rendering
@@ -501,8 +702,24 @@ class FeasApp:
         self._render_generation()
         self._render_engine_specific()
         self._render_cashflow_table()
-        self._render_core_charts()
         self._render_wacc_capex_carbon()
+        # Charts (matplotlib) are the slow part. Defer them one tick so the
+        # inputs, KPIs, tables and cards paint immediately when switching
+        # engines or pressing Calculate — the charts fill in a moment later.
+        self._schedule_charts()
+
+    def _schedule_charts(self):
+        if self._chart_job is not None:
+            try: self.root.after_cancel(self._chart_job)
+            except Exception: pass
+        self._chart_job = self.root.after(30, self._draw_charts_now)
+
+    def _draw_charts_now(self):
+        self._chart_job = None
+        try:
+            self._render_core_charts()
+        except Exception as e:
+            print(f"Chart render error: {e}")
 
     def _render_alert(self):
         k = self.results["kpis"]
@@ -535,8 +752,6 @@ class FeasApp:
     # ── Hero KPI cards (3 large) ─────────────────────────────────
     def _render_hero_kpis(self):
         k = self.results["kpis"]
-        eirr = k.get("equity_irr") or 0
-        pirr = k.get("project_irr") or 0
         npv = k.get("equity_npv") or 0
 
         def pct_badge(v, hurdle=0.12):
@@ -545,11 +760,24 @@ class FeasApp:
             kind = "pos" if v >= hurdle else ("warn" if v >= 0 else "neg")
             return (f"{sign}{v*100:.2f}%", kind)
 
+        # When the ordinary IRR is undefined (no sign change — e.g. a
+        # persistently loss-making base case), fall back to MIRR so the card
+        # still shows a meaningful return instead of a misleading 0.00%.
+        def irr_cell(irr, mirr_val, base_sub):
+            if irr is not None:
+                return f"{irr*100:.2f}%", pct_badge(irr - 0.12), base_sub
+            if mirr_val is not None:
+                return f"{mirr_val*100:.2f}%", pct_badge(mirr_val - 0.12), "MIRR · IRR undefined"
+            return "n/a", ("n/a", "neutral"), "no positive cash flow"
+
+        pirr_val, pirr_badge, pirr_sub = irr_cell(
+            k.get("project_irr"), k.get("project_mirr"), "vs 12% hurdle")
+        eirr_val, eirr_badge, eirr_sub = irr_cell(
+            k.get("equity_irr"), k.get("equity_mirr"), "after debt service")
+
         hero = [
-            ("Project IRR",  f"{pirr*100:.2f}%",  pct_badge(pirr - 0.12),
-              "vs 12% hurdle",  "project_irr"),
-            ("Equity IRR",   f"{eirr*100:.2f}%",  pct_badge(eirr - 0.12),
-              "after debt service",  "equity_irr"),
+            ("Project IRR",  pirr_val,  pirr_badge, pirr_sub,  "project_irr"),
+            ("Equity IRR",   eirr_val,  eirr_badge, eirr_sub,  "equity_irr"),
             ("Equity NPV",   f"{npv:,.0f} MB",
              (f"{'+' if npv >= 0 else ''}{npv:.1f} MB",
               "pos" if npv >= 0 else "neg"),
@@ -561,6 +789,7 @@ class FeasApp:
                 self.hero_kpi_row,
                 label=lbl, value=val,
                 sparkline_values=self._sparkline_history.get(key, []),
+                sparkline_baseline=self._spark_baseline(key),
                 badge_text=badge_txt, badge_kind=badge_kind,
                 sub=sub,
             )
@@ -606,6 +835,7 @@ class FeasApp:
                 self.sec_kpi_row,
                 label=lbl, value=val,
                 sparkline_values=self._sparkline_history.get(key, []),
+                sparkline_baseline=self._spark_baseline(key),
                 badge_text=badge_txt, badge_kind=badge_kind,
                 sub=sub,
             )
@@ -1131,10 +1361,35 @@ class FeasApp:
 
 
 # ════════════════════════════════════════════════════════════════════════
+def _enable_hidpi():
+    """Windows: mark the process DPI-aware so Tk draws text at the monitor's
+    native resolution instead of letting the OS bitmap-stretch a 96-DPI canvas
+    (that stretch is what makes fonts look blurry at display scaling > 100%)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    for attempt in (
+        lambda: ctypes.windll.shcore.SetProcessDpiAwareness(1),  # system-DPI aware (Win8.1+)
+        lambda: ctypes.windll.user32.SetProcessDPIAware(),        # legacy fallback (Vista+)
+    ):
+        try:
+            attempt()
+            return
+        except Exception:
+            continue
+
+
 def main():
+    _enable_hidpi()
     root = tk.Tk()
-    try: root.tk.call("tk", "scaling", 1.15)
-    except tk.TclError: pass
+    # Tk now sees the true monitor DPI. Keep the app's original visual text
+    # size (tuned around 1.15) but scale it to THIS monitor so fonts stay
+    # crisp at any Windows display-scaling setting (100 / 125 / 150 %).
+    try:
+        dpi_scale = root.winfo_fpixels("1i") / 96.0   # 1.0 = 100%, 1.25 = 125%
+        root.tk.call("tk", "scaling", 1.15 * dpi_scale)
+    except tk.TclError:
+        pass
     app = FeasApp(root)
     root.mainloop()
 

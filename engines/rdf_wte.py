@@ -16,7 +16,8 @@ import copy
 from .shared import (
     KCAL_PER_KWH,
     irr_brentq, npv_calc, payback_period, dscr_year, bcr_calc, lcoe_thb_per_kwh,
-    debt_schedule_annuity, wacc_capm, boi_tax_rate, capex_breakdown,
+    debt_schedule_annuity, wacc_capm, boi_tax_rate, TaxLossCarryForward,
+    capex_breakdown,
     compute_msw_chemistry, carbon_credit_tver,
     ppa_escalated_rate, working_capital_recovery,
     MSW_COMPONENT_CHEMISTRY,
@@ -168,6 +169,8 @@ class RDFWTEInputs:
     debt_tenor: int = 12
     discount_rate: float = 0.0625
     tax_rate: float = 0.20
+    depreciation_years: int = 10       # tax depreciation life (≤ project life)
+    nol_carryforward_years: int = 5    # tax-loss carry-forward (Thai: 5 yr)
     boi_full_years: int = 8
     boi_partial_years: int = 5
     boi_partial_rate: float = 0.10
@@ -464,8 +467,10 @@ def run_model(p: RDFWTEInputs) -> dict:
     )
     capex_total = cx["total_capex"]
     equity = cx["equity"]; debt = cx["debt"]
-    dep = cx["total_proj_capex"] / p.project_life
+    _dep_years = max(1, min(int(p.depreciation_years), p.project_life))
+    _dep_annual = cx["total_proj_capex"] / _dep_years
     ds = debt_schedule_annuity(debt, p.interest_rate, p.debt_tenor, p.project_life)
+    _tlcf = TaxLossCarryForward(p.nol_carryforward_years)
 
     carbon_mb_yr, be_yr = carbon_credit_tver(raw["msw_intake_t_yr"], p.carbon_price,
                                               enabled=p.enable_carbon)
@@ -479,12 +484,13 @@ def run_model(p: RDFWTEInputs) -> dict:
         rev = _yearly_revenue(p, y, raw, carbon_mb_yr)
         op = _yearly_opex(p, y, capex_total, raw, rev["fit_rev"])
         revenue = rev["revenue"]; opex = op["total"]
+        dep = _dep_annual if y < _dep_years else 0.0
         ebitda = revenue - opex; ebit = ebitda - dep
         interest, principal_repay, _ = ds[y]
         ebt = ebit - interest
         tax_eff = boi_tax_rate(y, p.boi_full_years, p.boi_partial_years,
                                 p.boi_partial_rate, p.tax_rate)
-        tax_amt = max(ebt, 0) * tax_eff
+        tax_amt = _tlcf.tax(ebt, tax_eff)   # with loss carry-forward
         npat = ebt - tax_amt; ocf = npat + dep
         cfads = npat + dep + interest
         dscr = dscr_year(cfads, interest, principal_repay)
@@ -633,6 +639,7 @@ def default_preset() -> RDFWTEInputs:
         drying_fuel_thb_per_ton=25000.0,
         debt_pct=0.70, interest_rate=0.06375,
         debt_tenor=12, discount_rate=0.0625,
+        depreciation_years=10, nol_carryforward_years=5,
         boi_full_years=8, boi_partial_years=5, boi_partial_rate=0.10,
     )
 
@@ -640,7 +647,7 @@ def default_preset() -> RDFWTEInputs:
 INPUT_SECTIONS = [
     ("Plant Sizing", [
         ("project_name",          "Project Name",          "str",   ""),
-        ("cod_year",              "COD Year",              "int",   ""),
+        ("cod_year",              "COD Year",              "int",   "e.g. 2026"),
         ("project_life",          "Project Life",          "int",   "yr"),
         ("mw_gross",              "WTE MW Gross",          "float", "MW"),
         ("parasitic_load_pct",    "Parasitic Load",        "pct",   "%"),
@@ -744,11 +751,13 @@ INPUT_SECTIONS = [
         ("debt_tenor",          "Debt Tenor",       "int",   "yr"),
         ("discount_rate",       "Discount Rate",    "pct",   "%"),
         ("tax_rate",            "Tax Rate (CIT)",   "pct",   "%"),
+        ("depreciation_years",  "Depreciation life","int",   "yr"),
+        ("nol_carryforward_years","Loss carry-fwd", "int",   "yr"),
         ("boi_full_years",      "BOI 0% Years",     "int",   "yr"),
         ("boi_partial_years",   "BOI 50% Years",    "int",   "yr"),
         ("boi_partial_rate",    "BOI Partial Rate", "pct",   "%"),
         ("rf",                  "Risk-Free Rate",   "pct",   "%"),
-        ("beta_unlevered",      "β Unlevered",      "float", ""),
+        ("beta_unlevered",      "β Unlevered",      "float", "0.5–0.9"),
         ("mrp",                 "Market Risk Premium","pct", "%"),
         ("terminal_value",      "Terminal Value",   "float", "MB"),
     ]),
