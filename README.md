@@ -30,27 +30,42 @@ schema, so results are comparable across technologies:
 | **Biogas** | wastewater COD → CH₄ → power | TOU electricity + REC (optional) |
 | **Solar PV** | PVWatts irradiance → AC energy | TOU electricity (ground or floating FPV) |
 
-Type the parameters, press **Calculate**, and every KPI, cash-flow table and
-chart updates. Hover any parameter name for a tooltip explaining what it means,
-its typical range, and how it moves the result.
+Every engine runs a **two-stage pipeline** — first the **technical / engineering**
+model (what the plant physically produces), then the **financial** model (whether
+the project makes money). Type the parameters, press **Calculate**, and every KPI,
+cash-flow table and chart updates. Hover any parameter for a tooltip with its
+meaning, typical range, and impact.
 
-## Methodology (what's under the hood)
+## How it works — technical **and** financial
 
-The calculation chain is verified formula-by-formula against textbook standards
-(see [`CORRECTNESS_AUDIT.md`](CORRECTNESS_AUDIT.md); run `python audit_correctness.py`
-→ 59 checks pass):
+Two layers, both verified formula-by-formula against textbook standards
+(see [`CORRECTNESS_AUDIT.md`](CORRECTNESS_AUDIT.md); `python audit_correctness.py`
+→ 59 checks pass). Full per-engine **technical + financial process diagrams** are
+in [`FLOWCHARTS.md`](FLOWCHARTS.md); refinement notes in [`IMPROVEMENTS.md`](IMPROVEMENTS.md).
 
-- **Fuel chemistry** — Dulong's formula (Channiwala coefficients) for HHV, LHV
-  from moisture (ISO 1928), MSW composition → C/H/O/N/S.
-- **Biogas** — COD → CH₄ (0.35 m³/kg-COD theoretical) → biogas → kWh chain.
-- **Solar** — PVWatts monthly profile × Performance Ratio breakdown, LID +
-  annual degradation, inverter replacement, TOU peak/off-peak split.
-- **Finance** — WACC via CAPM (levered β), annuity debt schedule, DSCR, BCR,
-  LCOE / LCO-pellet, NPV, IRR (bisection) with **MIRR fallback**.
-- **Tax realism** — BOI holiday cascade (0% → partial → full CIT), separate
-  **tax depreciation life**, and **tax-loss carry-forward (NOL, 5 yr)**.
+### ① Technical model (engineering) — *what the plant produces*
+Turns raw material into net electricity / fuel output:
+- **Combustion (RDF / WTE)** — MSW composition → C/H/O/N/S; Dulong HHV
+  (Channiwala coefficients); LHV from moisture (ISO 1928); boiler × turbine
+  efficiency, parasitic load, availability and overhaul outages → net MWh.
+- **Biogas** — COD → CH₄ (0.35 m³/kg-COD theoretical) → biogas → kWh chain;
+  gas-engine efficiency, multi-source feedstock, year-1 ramp-up.
+- **Solar PV** — PVWatts irradiance × Performance-Ratio breakdown (temperature,
+  soiling, inverter, DC wiring, mismatch); LID + annual degradation; TOU split.
+- **Mass / energy balance** — RDF yield & drying loss, the 3-way RDF+WTE split,
+  bottom/fly-ash split, biogas feedstock volumes.
+
+### ② Financial model — *whether it makes money*
+Turns that output into a bankable verdict:
 - **CAPEX build-up** — EPC + owner + contingency + IDC (drawdown) + working
   capital + DSRA + decommissioning.
+- **Funding & cost of capital** — debt/equity split, annuity debt schedule,
+  WACC via CAPM (levered β).
+- **Tax** — BOI holiday cascade (0% → partial → full CIT), separate tax
+  depreciation life, and tax-loss carry-forward (NOL, 5 yr).
+- **Returns & bankability** — year-by-year cash flow → Project / Equity IRR
+  (with **MIRR fallback**), NPV, DSCR, BCR, payback, LCOE / LCO-pellet, plus
+  optional carbon-credit (T-VER) revenue.
 
 > Parameters are starting assumptions for a *base case* — tune them to your own
 > project. The point is a **correct method**, not a fixed answer.
