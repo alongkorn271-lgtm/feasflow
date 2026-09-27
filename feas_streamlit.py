@@ -289,6 +289,21 @@ with st.sidebar:
         reset_engine(st.session_state.engine_code)
         st.rerun()
 
+    # Preset picker — engines that expose several PRESETS (e.g. biomass:
+    # greenfield ↔ brownfield MKP valuation).
+    _presets = getattr(REGISTRY[st.session_state.engine_code], "PRESETS", None)
+    if _presets and len(_presets) > 1:
+        _keys = list(_presets.keys())
+        _labels = [k.replace("_", " ").title().replace("Mkp", "MKP") for k in _keys]
+        _sel = st.selectbox("Preset", _labels, index=0,
+                             key=f"presetsel_{st.session_state.engine_code}")
+        if st.button("Load preset", use_container_width=True):
+            st.session_state.params = _presets[_keys[_labels.index(_sel)]]()
+            for _k in list(st.session_state.keys()):
+                if _k.startswith("inp__"):
+                    del st.session_state[_k]
+            st.rerun()
+
     # Save scenario
     params_dict = asdict(st.session_state.params)
     scenario_json = json.dumps(
@@ -433,14 +448,21 @@ with right_col:
     # ── Status banner ────────────────────────────────────────────────
     # Use IRR; if undefined fall back to MIRR; if still none the project never
     # turns cash-positive → treat as a loss (not a misleading "marginal").
-    eirr = k.get("equity_irr")
-    if eirr is None:
-        eirr = k.get("equity_mirr")
-    if eirr is None:
-        eirr = -1.0
+    mode = (results.get("extras") or {}).get("analysis_mode", "")
     dscr = k.get("dscr_min")
     hurdle = 0.12
-    if eirr < 0:
+    if mode == "brownfield":
+        # Operating-asset valuation — no IRR; report remaining EV / equity value.
+        _ev = k.get("enterprise_value_remaining") or 0
+        _eqv = k.get("equity_value_remaining") or 0
+        _ds = f"{dscr:.2f}" if dscr is not None else "n/a"
+        st.markdown(f'<div class="status-warn" style="background:#DBEAFE; color:#1E40AF;">'
+                     f'ℹ️  Operating-asset valuation — Enterprise {_ev:,.0f} MB · '
+                     f'Equity {_eqv:,.0f} MB (remaining PPA) · DSCR min {_ds}</div>',
+                     unsafe_allow_html=True)
+    elif (eirr := (k.get("equity_irr") if k.get("equity_irr") is not None
+                    else k.get("equity_mirr") if k.get("equity_mirr") is not None
+                    else -1.0)) < 0:
         st.markdown(f'<div class="status-fail">🔴  Equity IRR {eirr*100:.2f}% '
                      f'— Project loses money</div>',
                      unsafe_allow_html=True)
@@ -494,11 +516,20 @@ with right_col:
                        delta_color="off")
 
     r1c1, r1c2, r1c3 = st.columns(3)
-    irr_metric(r1c1, "Project IRR", k.get("project_irr"), k.get("project_mirr"))
-    irr_metric(r1c2, "Equity IRR",  k.get("equity_irr"),  k.get("equity_mirr"))
-    r1c3.metric("Equity NPV", f"{k['equity_npv']:.0f} MB",
-                 delta=f"@ {params.discount_rate*100:.2f}%",
-                 delta_color="off")
+    if mode == "brownfield":
+        _ev = k.get("enterprise_value_remaining"); _eqv = k.get("equity_value_remaining")
+        r1c1.metric("Enterprise Value", f"{_ev:,.0f} MB" if _ev is not None else "n/a",
+                     delta="remaining PPA @ WACC", delta_color="off")
+        r1c2.metric("Equity Value", f"{_eqv:,.0f} MB" if _eqv is not None else "n/a",
+                     delta="remaining PPA @ Ke", delta_color="off")
+        r1c3.metric("Discount Rate", f"{params.discount_rate*100:.2f}%",
+                     delta="IRR n/a · asset valuation", delta_color="off")
+    else:
+        irr_metric(r1c1, "Project IRR", k.get("project_irr"), k.get("project_mirr"))
+        irr_metric(r1c2, "Equity IRR",  k.get("equity_irr"),  k.get("equity_mirr"))
+        r1c3.metric("Equity NPV", f"{k['equity_npv']:.0f} MB",
+                     delta=f"@ {params.discount_rate*100:.2f}%",
+                     delta_color="off")
 
     r2c1, r2c2, r2c3 = st.columns(3)
     r2c1.metric("DSCR min", num(k["dscr_min"]),

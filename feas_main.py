@@ -67,6 +67,11 @@ ENGINE_LABELS = {
 }
 
 
+def _pretty_preset(key: str) -> str:
+    """'mkp_greenfield' → 'MKP Greenfield' for the preset dropdown."""
+    return key.replace("_", " ").title().replace("Mkp", "MKP")
+
+
 # ════════════════════════════════════════════════════════════════════════
 class ScrollableFrame(tk.Frame):
     """Scrollable container with a modern CTkScrollbar (or ttk fallback)."""
@@ -325,7 +330,7 @@ class FeasApp:
         tk.Label(pad, text="Power-plant feasibility studio",
                   font=F_BODY, bg=CARD, fg=TEXT_SUB).pack(anchor="w", pady=(2, 14))
         for k, v in [("Version", f"{APP_VERSION}  (multi-engine)"),
-                      ("Engines", "RDF · WTE · RDF+WTE · Biogas · Solar PV"),
+                      ("Engines", "RDF · WTE · RDF+WTE · Biogas · Solar · Biomass"),
                       ("Author", APP_AUTHOR),
                       ("Year", "2026")]:
             row = tk.Frame(pad, bg=CARD); row.pack(fill="x", pady=2)
@@ -406,8 +411,42 @@ class FeasApp:
         text_btn(right, "Load", self._load_scenario).pack(side="right", padx=4)
         text_btn(right, "↺ Reset", self._reset_to_preset).pack(side="right", padx=4)
 
+        # Preset picker — shown only for engines that expose several PRESETS
+        # (e.g. biomass: greenfield ↔ brownfield MKP valuation).
+        self._preset_keys: list[str] = []
+        self.preset_var = tk.StringVar()
+        self.preset_picker = ttk.Combobox(
+            right, textvariable=self.preset_var, state="readonly",
+            width=18, font=F_SMALL)
+        self.preset_picker.bind("<<ComboboxSelected>>",
+                                 lambda e: self._on_preset_selected())
+
         # Divider line
         tk.Frame(self.topbar_frame, bg=BORDER, height=1).pack(side="bottom", fill="x")
+
+    def _refresh_preset_picker(self):
+        presets = getattr(self.current_engine, "PRESETS", None)
+        if presets and len(presets) > 1:
+            self._preset_keys = list(presets.keys())
+            labels = [_pretty_preset(kk) for kk in self._preset_keys]
+            self.preset_picker.configure(values=labels)
+            self.preset_var.set(labels[0])          # default = first preset
+            if not self.preset_picker.winfo_ismapped():
+                self.preset_picker.pack(side="right", padx=(4, 10))
+        else:
+            self._preset_keys = []
+            if self.preset_picker.winfo_ismapped():
+                self.preset_picker.pack_forget()
+
+    def _on_preset_selected(self):
+        idx = self.preset_picker.current()
+        if not (0 <= idx < len(self._preset_keys)):
+            return
+        key = self._preset_keys[idx]
+        self.params = self.current_engine.PRESETS[key]()
+        self._sparkline_history.clear()
+        self._populate_inputs()
+        self._recalc(immediate=True)
 
     def _update_topbar(self):
         meta = self.current_engine.META
@@ -475,6 +514,7 @@ class FeasApp:
         self._sparkline_history.clear()
         self._refresh_sidebar()
         self._update_topbar()
+        self._refresh_preset_picker()
         self._build_input_panel()
         self._populate_inputs()
         self._recalc(immediate=True)
@@ -482,6 +522,8 @@ class FeasApp:
     def _reset_to_preset(self):
         self.params = self.current_engine.default_preset()
         self._sparkline_history.clear()
+        if self._preset_keys:                       # keep the picker in sync
+            self.preset_var.set(_pretty_preset(self._preset_keys[0]))
         self._populate_inputs()
         self._recalc(immediate=True)
 
@@ -724,8 +766,23 @@ class FeasApp:
 
     def _render_alert(self):
         k = self.results["kpis"]
-        eirr = k.get("equity_irr") or 0
+        mode = (self.results.get("extras") or {}).get("analysis_mode", "")
         dscr = k.get("dscr_min")
+        if mode == "brownfield":
+            # Operating-asset valuation — no IRR; report remaining EV / equity.
+            ev = k.get("enterprise_value_remaining") or 0
+            eqv = k.get("equity_value_remaining") or 0
+            dscr_s = f"{dscr:.2f}" if dscr is not None else "n/a"
+            msg = (f"  Operating-asset valuation — Enterprise {ev:,.0f} MB · "
+                    f"Equity {eqv:,.0f} MB (remaining PPA) · DSCR min {dscr_s}")
+            bg_bn = "#DBEAFE"; fg_bn = "#1E40AF"; icon = "ℹ"
+            pill = tk.Frame(self.alert_holder, bg=bg_bn)
+            pill.pack(fill="x")
+            inner = tk.Frame(pill, bg=bg_bn); inner.pack(fill="x", padx=18, pady=10)
+            tk.Label(inner, text=icon, font=(FF, 13, "bold"), bg=bg_bn, fg=fg_bn).pack(side="left")
+            tk.Label(inner, text=msg, font=F_BODY_B, bg=bg_bn, fg=fg_bn, anchor="w").pack(side="left")
+            return
+        eirr = k.get("equity_irr") or 0
         hurdle = 0.12
         if eirr < 0:
             msg = f"  Equity IRR {eirr*100:.2f}% — Project loses money under current assumptions"
@@ -771,20 +828,37 @@ class FeasApp:
                 return f"{mirr_val*100:.2f}%", pct_badge(mirr_val - 0.12), "MIRR · IRR undefined"
             return "n/a", ("n/a", "neutral"), "no positive cash flow"
 
-        pirr_val, pirr_badge, pirr_sub = irr_cell(
-            k.get("project_irr"), k.get("project_mirr"), "vs 12% hurdle")
-        eirr_val, eirr_badge, eirr_sub = irr_cell(
-            k.get("equity_irr"), k.get("equity_mirr"), "after debt service")
-
-        hero = [
-            ("Project IRR",  pirr_val,  pirr_badge, pirr_sub,  "project_irr"),
-            ("Equity IRR",   eirr_val,  eirr_badge, eirr_sub,  "equity_irr"),
-            ("Equity NPV",   f"{npv:,.0f} MB",
-             (f"{'+' if npv >= 0 else ''}{npv:.1f} MB",
-              "pos" if npv >= 0 else "neg"),
-             f"@ {asdict(self.params).get('discount_rate', 0.0625)*100:.2f}%",
-             "equity_npv"),
-        ]
+        mode = (self.results.get("extras") or {}).get("analysis_mode", "")
+        disc = asdict(self.params).get('discount_rate', 0.0625)
+        if mode == "brownfield":
+            # Operating-asset valuation: show remaining Enterprise / Equity value
+            # (IRR is undefined when no up-front investment is modelled).
+            def mb_cell(v):
+                if v is None: return "n/a", ("—", "neutral")
+                return f"{v:,.0f} MB", (f"{'+' if v >= 0 else ''}{v:.0f} MB",
+                                         "pos" if v >= 0 else "neg")
+            ev_val, ev_badge = mb_cell(k.get("enterprise_value_remaining"))
+            eqv_val, eqv_badge = mb_cell(k.get("equity_value_remaining"))
+            hero = [
+                ("Enterprise Value", ev_val, ev_badge, "remaining PPA @ WACC", "project_irr"),
+                ("Equity Value", eqv_val, eqv_badge, "remaining PPA @ Ke", "equity_irr"),
+                ("Discount Rate", f"{disc*100:.2f}%", ("WACC", "neutral"),
+                 "IRR n/a · asset valuation", "equity_npv"),
+            ]
+        else:
+            pirr_val, pirr_badge, pirr_sub = irr_cell(
+                k.get("project_irr"), k.get("project_mirr"), "vs 12% hurdle")
+            eirr_val, eirr_badge, eirr_sub = irr_cell(
+                k.get("equity_irr"), k.get("equity_mirr"), "after debt service")
+            hero = [
+                ("Project IRR",  pirr_val,  pirr_badge, pirr_sub,  "project_irr"),
+                ("Equity IRR",   eirr_val,  eirr_badge, eirr_sub,  "equity_irr"),
+                ("Equity NPV",   f"{npv:,.0f} MB",
+                 (f"{'+' if npv >= 0 else ''}{npv:.1f} MB",
+                  "pos" if npv >= 0 else "neg"),
+                 f"@ {disc*100:.2f}%",
+                 "equity_npv"),
+            ]
         for i, (lbl, val, (badge_txt, badge_kind), sub, key) in enumerate(hero):
             card = make_kpi_card(
                 self.hero_kpi_row,
@@ -825,7 +899,8 @@ class FeasApp:
             ("BCR", f"{(k.get('bcr') or 0):.2f}x",
              ("> 1", "pos" if (k.get("bcr") or 0) >= 1 else "neg"),
              "PV ratio", "bcr"),
-            ("Payback", f"{(k.get('payback_equity') or 0):.1f} yr",
+            ("Payback",
+             f"{k['payback_equity']:.1f} yr" if k.get("payback_equity") is not None else "—",
              ("equity", "pos" if (k.get("payback_equity") or 99) <= 10 else "warn"),
              "from COD", "payback"),
             ("WACC",     f"{(k.get('wacc') or 0)*100:.2f}%",
