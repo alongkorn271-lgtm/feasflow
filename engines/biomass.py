@@ -494,7 +494,7 @@ def default_preset() -> BiomassInputs:
         heat_rate_degradation_pct=0.003,
         fuel1_share=0.80, fuel1_moisture=0.25, fuel1_lhv_dry_mj=16.5, fuel1_price_thb_t=1500.0,
         fuel2_share=0.20, fuel2_moisture=0.35, fuel2_lhv_dry_mj=18.5, fuel2_price_thb_t=2200.0,
-        fuel_price_esc=0.005, ash_pct_of_fuel=0.05, ash_disposal_thb_t=300.0,
+        fuel_price_esc=0.01, ash_pct_of_fuel=0.05, ash_disposal_thb_t=300.0,
         fit_base=4.67, fit_premium=0.30, premium_years=8,   # biomass VSPP FiT adder
         cpi_escalation=0.01, cpi_linked_fraction=0.56, tariff_base_year=2027,
         enable_carbon=True, grid_ef_tco2_mwh=0.50, carbon_price=330.0, carbon_share_to_project=1.0,
