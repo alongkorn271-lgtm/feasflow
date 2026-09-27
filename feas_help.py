@@ -290,6 +290,61 @@ _add(["enable_carbon", "carbon_price"],
      "Enable carbon-credit (T-VER) sales from greenhouse-gas reductions + price per tonne CO₂eq.",
      "Thai price ≈ 100–300 baht/tonne", "On → extra revenue (still volatile with the carbon market).")
 
+# ─────────────────────────────────────────────────────────────
+# Biomass (solid-fuel steam plant)
+# ─────────────────────────────────────────────────────────────
+_add("contract_mw", "PPA export cap (MW) — the meter can't sell above this even if the "
+     "generator is bigger. Net export = min(gross − parasitic, contract).",
+     "VSPP ≤ 8 MW · SPP larger", "Below installed MW → the spare capacity earns nothing.")
+_add("load_factor", "Load factor while running — average export as a share of the contract MW "
+     "when the plant is online (separate from availability).",
+     "95–99%", "Higher → more energy per available hour.")
+_add(["use_heat_rate_input", "net_heat_rate_kj_kwh"],
+     "Net heat rate — fuel energy (LHV) in per net kWh out; the inverse of overall efficiency. "
+     "Toggle off to derive it from boiler × cycle efficiency instead.",
+     "14,500–17,000 kJ/kWh (biomass grate)", "Lower → less fuel per kWh → lower fuel cost → higher IRR.")
+_add("cycle_efficiency", "Steam cycle + generator efficiency (turbine gross).",
+     "28–32% (biomass Rankine)", "Higher → more power per unit of steam.")
+_add("heat_rate_degradation_pct", "Yearly worsening of heat rate (fouling, wear) from model start.",
+     "0.2–0.5%/yr", "Fuel creeps up over the project life.")
+_add(["fuel1_share", "fuel2_share"],
+     "Mass share of each fuel stream in the blend (e.g. corn husk + wood chip); shares are "
+     "normalised to 100%.",
+     "husk 70–85% · wood 15–30%", "Sets the blended LHV and fuel price.")
+_add(["fuel1_moisture", "fuel2_moisture"],
+     "As-received moisture of the fuel — wet fuel carries less usable energy: "
+     "LHV_ar = LHV_dry·(1−M) − 2.44·M.",
+     "husk 20–30% · wood 30–40%", "Wetter → lower as-received LHV → more tonnes burned → higher cost.")
+_add(["fuel1_lhv_dry_mj", "fuel2_lhv_dry_mj"],
+     "Dry (bone-dry) lower heating value of the fuel.",
+     "corn husk 15–17 · wood 18–19 MJ/kg", "Higher → more energy per tonne.")
+_add(["fuel1_price_thb_t", "fuel2_price_thb_t", "fuel_transport_thb_t", "fuel_price_esc"],
+     "Delivered fuel price per tonne (+ optional transport adder, + annual escalation). "
+     "Fuel is the single largest operating cost of a biomass plant.",
+     "≈ 1,300–2,300 ฿/t delivered", "The #1 driver — a few % on fuel price swings IRR sharply.")
+_add(["ash_pct_of_fuel", "ash_disposal_thb_t"],
+     "Ash produced as a share of fuel burned + its disposal cost per tonne.",
+     "5–10% of fuel", "Adds OPEX; minor next to fuel.")
+_add("grid_ef_tco2_mwh", "Grid emission factor — tonnes CO₂ avoided per MWh, used for the T-VER credit.",
+     "≈ 0.5 tCO₂/MWh (Thai grid)", "Higher → more carbon credits.")
+_add(["om_fixed_mb", "maint_var_thb_kwh", "overhaul_cost_mb"],
+     "O&M contract fee (fixed MB/yr) + variable maintenance (฿/kWh) + a lump overhaul cost "
+     "added in each major-overhaul year.",
+     "fee ~15–25 MB · maint 0.2–0.3 ฿/kWh", "Second-largest cost block after fuel.")
+_add(["water_chem_thb_kwh", "pdf_thb_kwh"],
+     "Water & chemicals (฿/kWh) and the Power Development Fund levy (฿/kWh) on generation.",
+     "PDF ~0.01 ฿/kWh (verify)", "Small recurring OPEX.")
+_add(["insured_value_mb", "insurance_pct"],
+     "Insured asset value and the annual premium as a % of it.",
+     "≈ 0.4%/yr", "Adds fixed OPEX.")
+# Brownfield (operating-asset valuation) fields
+_add(["brownfield_mode", "valuation_year", "ppa_end_year", "last_year_fraction", "entry_value_mb",
+      "opening_debt_mb", "remaining_debt_tenor", "remaining_book_value_mb", "remaining_dep_years"],
+     "Brownfield mode values an already-running plant over its REMAINING PPA (from valuation year "
+     "to PPA end) using the opening debt, remaining tenor and remaining book value. Entry value 0 "
+     "means the output is the enterprise / equity value of what's left (IRR is then undefined).",
+     "MKP: 2026→2039, ~7 yr debt left", "Answers 'what is the remaining contract worth', not new-project IRR.")
+
 
 # ════════════════════════════════════════════════════════════════════════
 def guide_for(key: str, label: str = "", hint: str = "") -> Optional[str]:

@@ -54,7 +54,7 @@ DEBOUNCE_MS = 500
 APP_NAME    = "FeasFlow"
 APP_VERSION = "2.1"
 APP_AUTHOR  = "Alongkorn Chanta"
-ENGINE_ORDER = ["rdf", "wte", "rdf_wte", "biogas", "solar"]
+ENGINE_ORDER = ["rdf", "wte", "rdf_wte", "biogas", "solar", "biomass"]
 
 # Display names for sidebar items
 ENGINE_LABELS = {
@@ -63,6 +63,7 @@ ENGINE_LABELS = {
     "rdf_wte": "RDF + WTE",
     "biogas":  "Biogas",
     "solar":   "Solar PV",
+    "biomass": "Biomass",
 }
 
 
@@ -863,7 +864,7 @@ class FeasApp:
     def _build_generation_summary_rows(self, gen, cx):
         et = self.current_engine_code
         rows = []
-        if et in ("wte", "rdf_wte", "biogas", "solar"):
+        if et in ("wte", "rdf_wte", "biogas", "solar", "biomass"):
             if gen.get("mwh_yr") is not None:
                 rows.append(("Net Generation", f"{gen['mwh_yr']:,.0f} MWh/yr"))
         if et == "wte":
@@ -902,6 +903,16 @@ class FeasApp:
                 ("Annual kWh", f"{gen.get('annual_kwh', 0):,.0f}"),
                 ("Capacity Factor", f"{gen.get('capacity_factor', 0)*100:.2f} %"),
                 ("Peak Ratio", f"{gen.get('peak_ratio', 0)*100:.1f} %"),
+            ]
+        elif et == "biomass":
+            rows += [
+                ("Fuel Required", f"{gen.get('feedstock_ton_yr', 0):,.0f} t/yr "
+                                    f"({gen.get('feedstock_ton_day', 0):,.0f} t/d)"),
+                ("LHV (as-received)", f"{gen.get('lhv_mj_per_kg', 0):.2f} MJ/kg"),
+                ("Net Heat Rate", f"{gen.get('net_heat_rate_kj_kwh', 0):,.0f} kJ/kWh"),
+                ("SFC", f"{gen.get('sfc_kg_per_kwh', 0):.2f} kg/kWh"),
+                ("Capacity Factor", f"{gen.get('capacity_factor', 0)*100:.1f} %"),
+                ("Ash Output", f"{gen.get('ash_ton_yr', 0):,.0f} t/yr"),
             ]
         rows += [
             ("CAPEX Total", f"{cx['total_capex']:,.1f} MB"

@@ -1,7 +1,7 @@
 # FeasFlow — Power-Plant Feasibility Studio
 
 **Multi-engine feasibility model for Thai waste-to-energy & renewable projects.**
-Model five plant types — **RDF · WTE · RDF+WTE · Biogas · Solar PV** — from raw
+Model six plant types — **RDF · WTE · RDF+WTE · Biogas · Solar PV · Biomass** — from raw
 material and plant chemistry all the way to a bankable financial verdict
 (IRR, NPV, DSCR, LCOE, payback), with a clean desktop GUI and a web version.
 
@@ -29,6 +29,7 @@ schema, so results are comparable across technologies:
 | **RDF + WTE** | 3-way split: sell RDF / burn / reject | RDF sales + FiT electricity + tipping |
 | **Biogas** | wastewater COD → CH₄ → power | TOU electricity + REC (optional) |
 | **Solar PV** | PVWatts irradiance → AC energy | TOU electricity (ground or floating FPV) |
+| **Biomass** | agri/wood residue → grate boiler → steam → power | FiT + T-VER (greenfield or operating-asset valuation) |
 
 Every engine runs a **two-stage pipeline** — first the **technical / engineering**
 model (what the plant physically produces), then the **financial** model (whether
@@ -52,6 +53,9 @@ Turns raw material into net electricity / fuel output:
   gas-engine efficiency, multi-source feedstock, year-1 ramp-up.
 - **Solar PV** — PVWatts irradiance × Performance-Ratio breakdown (temperature,
   soiling, inverter, DC wiring, mismatch); LID + annual degradation; TOU split.
+- **Biomass** — two-stream fuel blend → as-received LHV (moisture-corrected);
+  net heat rate (from input or boiler × cycle efficiency), export capped at the
+  PPA contract MW; greenfield IRR **or** operating-asset remaining-PPA valuation.
 - **Mass / energy balance** — RDF yield & drying loss, the 3-way RDF+WTE split,
   bottom/fly-ash split, biogas feedstock volumes.
 

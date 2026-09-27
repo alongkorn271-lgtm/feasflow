@@ -229,13 +229,14 @@ footer {{ visibility: hidden; }}
 # ════════════════════════════════════════════════════════════════════════
 # SESSION STATE INIT
 # ════════════════════════════════════════════════════════════════════════
-ENGINE_ORDER = ["rdf", "wte", "rdf_wte", "biogas", "solar"]
+ENGINE_ORDER = ["rdf", "wte", "rdf_wte", "biogas", "solar", "biomass"]
 ENGINE_LABELS = {
     "rdf":     "🗑️  RDF",
     "wte":     "🔥  WTE",
     "rdf_wte": "🔄  RDF + WTE",
     "biogas":  "🌿  Biogas",
     "solar":   "☀️  Solar PV",
+    "biomass": "🌾  Biomass",
 }
 
 if "engine_code" not in st.session_state:
