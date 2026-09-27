@@ -477,10 +477,12 @@ def default_preset() -> BiomassInputs:
 
     Uses Mae Krathing Power's real plant / fuel / tariff data (9.9 MW installed,
     8.0 MW VSPP contract, net heat rate 15,650 kJ/kWh, corn-husk + wood mix,
-    effective FiT ~4.67 ฿/kWh with 1% CPI on 56% of tariff, T-VER) but modelled
-    as a brand-new project (own CAPEX) so it produces IRR / NPV / DSCR / LCOE
-    comparable to the other engines. For the operating-asset (remaining-PPA)
-    valuation, use PRESETS["mkp_brownfield"] instead.
+    FiT ~4.67 ฿/kWh + a 0.30 ฿/kWh biomass VSPP adder for the first 8 years —
+    the incentive a NEW project actually receives, not MKP's current post-adder
+    tariff — with 1% CPI on 56% of tariff, plus T-VER). Modelled as a brand-new
+    project (own CAPEX) so it produces IRR / NPV / DSCR / LCOE comparable to the
+    other engines. For the operating-asset (remaining-PPA) valuation of the
+    existing plant, use PRESETS["mkp_brownfield"] instead.
     """
     return BiomassInputs(
         project_name="Biomass — Mae Krathing 9.9 MW",
@@ -493,7 +495,7 @@ def default_preset() -> BiomassInputs:
         fuel1_share=0.80, fuel1_moisture=0.25, fuel1_lhv_dry_mj=16.5, fuel1_price_thb_t=1500.0,
         fuel2_share=0.20, fuel2_moisture=0.35, fuel2_lhv_dry_mj=18.5, fuel2_price_thb_t=2200.0,
         fuel_price_esc=0.02, ash_pct_of_fuel=0.05, ash_disposal_thb_t=300.0,
-        fit_base=4.67, fit_premium=0.0, premium_years=0,
+        fit_base=4.67, fit_premium=0.30, premium_years=8,   # biomass VSPP FiT adder
         cpi_escalation=0.01, cpi_linked_fraction=0.56, tariff_base_year=2027,
         enable_carbon=True, grid_ef_tco2_mwh=0.50, carbon_price=330.0, carbon_share_to_project=1.0,
         epc_cost=650.0, owner_cost_pct=0.08, contingency_pct=0.05, idc_pct=0.05,
