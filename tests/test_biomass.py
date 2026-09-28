@@ -1,4 +1,4 @@
-"""Tests for engines.biomass and tools.mkp_case.
+"""Tests for engines.biomass and tools.biomass_case.
 Run:  python -m pytest tests/test_biomass.py -q     (or)  python -m tests.test_biomass
 """
 import copy
@@ -42,7 +42,7 @@ def test_greenfield_runs_and_schema():
 
 
 def test_brownfield_life_and_years():
-    p = bm.mkp_brownfield_preset()
+    p = bm.brownfield_preset()
     r = bm.run_model(p)
     assert len(r["rows"]) == p.ppa_end_year - p.valuation_year + 1
     assert r["rows"][0]["calendar_year"] == p.valuation_year
@@ -51,16 +51,16 @@ def test_brownfield_life_and_years():
 
 
 def test_more_availability_more_value():
-    p = bm.mkp_brownfield_preset()
+    p = bm.brownfield_preset()
     v0 = bm.run_model(p)["kpis"]["enterprise_value_remaining"]
     q = copy.deepcopy(p); q.availability += 0.01
     v1 = bm.run_model(q)["kpis"]["enterprise_value_remaining"]
     assert v1 > v0
 
 
-def test_mkp_calibration_reproduces_2025():
-    from tools import mkp_case
-    _, c = mkp_case.calibrate()
+def test_calibration_reproduces_2025():
+    from tools import biomass_case
+    _, c = biomass_case.calibrate()
     assert abs(c["model_cogs"] - c["actual_cogs"]) < 0.05
     assert abs(c["model_rev"] - c["actual_rev"]) < 0.05
     assert abs(c["model_net"] - c["actual_net"]) < 0.05

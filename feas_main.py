@@ -68,8 +68,8 @@ ENGINE_LABELS = {
 
 
 def _pretty_preset(key: str) -> str:
-    """'mkp_greenfield' → 'MKP Greenfield' for the preset dropdown."""
-    return key.replace("_", " ").title().replace("Mkp", "MKP")
+    """'greenfield' → 'Greenfield' for the preset dropdown."""
+    return key.replace("_", " ").title()
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -412,7 +412,7 @@ class FeasApp:
         text_btn(right, "↺ Reset", self._reset_to_preset).pack(side="right", padx=4)
 
         # Preset picker — shown only for engines that expose several PRESETS
-        # (e.g. biomass: greenfield ↔ brownfield MKP valuation).
+        # (e.g. biomass: greenfield ↔ brownfield asset valuation).
         self._preset_keys: list[str] = []
         self.preset_var = tk.StringVar()
         self.preset_picker = ttk.Combobox(

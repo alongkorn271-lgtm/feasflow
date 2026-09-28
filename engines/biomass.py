@@ -473,19 +473,18 @@ def run_model(p: BiomassInputs) -> dict:
 # █  PRESETS  █
 # ════════════════════════════════════════════════════════════════════════
 def default_preset() -> BiomassInputs:
-    """Mae Krathing 9.9 MW biomass VSPP as a GREENFIELD base case.
+    """9.9 MW biomass VSPP as a GREENFIELD base case.
 
-    Uses Mae Krathing Power's real plant / fuel / tariff data (9.9 MW installed,
-    8.0 MW VSPP contract, net heat rate 15,650 kJ/kWh, corn-husk + wood mix,
-    FiT ~4.67 ฿/kWh + a 0.30 ฿/kWh biomass VSPP adder for the first 8 years —
-    the incentive a NEW project actually receives, not MKP's current post-adder
-    tariff — with 1% CPI on 56% of tariff, plus T-VER). Modelled as a brand-new
+    Representative Thai biomass VSPP: 9.9 MW installed, 8.0 MW contract, net heat
+    rate 15,650 kJ/kWh, corn-husk + wood mix, FiT ~4.67 ฿/kWh + a 0.30 ฿/kWh
+    biomass VSPP adder for the first 8 years (the incentive a NEW project
+    receives), with 1% CPI on 56% of tariff, plus T-VER. Modelled as a brand-new
     project (own CAPEX) so it produces IRR / NPV / DSCR / LCOE comparable to the
-    other engines. For the operating-asset (remaining-PPA) valuation of the
-    existing plant, use PRESETS["mkp_brownfield"] instead.
+    other engines. For the operating-asset (remaining-PPA) valuation of an
+    existing plant, use PRESETS["brownfield"] instead.
     """
     return BiomassInputs(
-        project_name="Biomass — Mae Krathing 9.9 MW",
+        project_name="Biomass VSPP 9.9 MW",
         cod_year=2027, project_life=20, brownfield_mode=False,
         mw_gross=9.9, contract_mw=8.0, parasitic_load_pct=0.10,
         availability=0.90, load_factor=0.98,
@@ -511,15 +510,15 @@ def default_preset() -> BiomassInputs:
     )
 
 
-def mkp_brownfield_preset() -> BiomassInputs:
-    """Mae Krating Power (Phrae) as an operating asset from 2026 (= 2569 BE).
+def brownfield_preset() -> BiomassInputs:
+    """A 9.9 MW biomass VSPP as an operating asset valued from 2026.
 
-    Public facts: 9.9 MW installed, 8.0 MW VSPP contract, COD 8 Aug 2019,
-    20-yr PPA, FiT ~4.62 ฿/kWh (effective ~4.67 from 2025 quarterly data),
-    fuel: corn husk + wood. Everything else = ASSUMPTION — see tools/mkp_case.py.
+    Example operating plant: 9.9 MW installed, 8.0 MW contract, COD 2019,
+    20-yr PPA, effective FiT ~4.67 ฿/kWh, corn husk + wood fuel. Values the
+    remaining PPA (2026–2039) — enterprise / equity value, not a new-build IRR.
     """
     return BiomassInputs(
-        project_name="MKP – Mae Krating Power (brownfield 2026–2039)",
+        project_name="Biomass VSPP — operating asset (brownfield 2026–2039)",
         cod_year=2019, brownfield_mode=True,
         valuation_year=2026, ppa_end_year=2039, last_year_fraction=0.6,
         entry_value_mb=0.0, opening_debt_mb=400.0, remaining_debt_tenor=7,
@@ -546,7 +545,7 @@ def mkp_brownfield_preset() -> BiomassInputs:
     )
 
 
-PRESETS = {"mkp_greenfield": default_preset, "mkp_brownfield": mkp_brownfield_preset}
+PRESETS = {"greenfield": default_preset, "brownfield": brownfield_preset}
 
 
 # ════════════════════════════════════════════════════════════════════════

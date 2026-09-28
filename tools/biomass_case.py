@@ -1,16 +1,16 @@
 """
-tools/mkp_case.py
-=================
-Mae Krating Power (MKP) case study with the biomass engine.
+tools/biomass_case.py
+=====================
+Operating biomass VSPP case study with the biomass engine.
 
-  1. Historical back-check 2021–2025 (BE 2564–2568) from the public P&L
+  1. Historical back-check 2021–2025 (BE 2564–2568) from a public P&L
   2. Calibrate the unknowns on 2025 (fuel price, carbon price, debt)
   3. Forward valuation 2026–2039 (remaining PPA) in brownfield mode
   4. "What is OE work worth?" – ΔEV / ΔEquity for availability, heat rate,
      fuel price, maintenance, moisture; plus BOI-assumption check
 
-Run:   python -m tools.mkp_case            (from repo root)
-Out:   prints a summary and writes tools/output/mkp_report.md + mkp_yearly.csv
+Run:   python -m tools.biomass_case        (from repo root)
+Out:   prints a summary and writes tools/output/biomass_case_report.md + _yearly.csv
 
 Every number not in HIST is an ASSUMPTION. Change ASSUMPTIONS and re-run.
 """
@@ -26,7 +26,7 @@ from dataclasses import replace
 from engines import biomass as bm
 
 # ─────────────────────────────────────────────────────────────────────
-# Public data: MKP income statement, MB (million THB). AD year = BE − 543
+# Public data: plant income statement, MB (million THB). AD year = BE − 543
 # ─────────────────────────────────────────────────────────────────────
 HIST = {
     2021: dict(rev_main=282.86, other=0.48,  cogs=214.35, sga=18.99, interest=31.91, net=18.04),
@@ -81,7 +81,7 @@ def calibrate(dep_mb: float | None = None, verbose: bool = True) -> tuple[bm.Bio
     A = ASSUMPTIONS
     dep = A["depreciation_mb"] if dep_mb is None else dep_mb
     h = HIST[CALIB_YEAR]
-    p = bm.mkp_brownfield_preset()
+    p = bm.brownfield_preset()
     p.load_factor = A["load_factor"]
     p.interest_rate = A["interest_rate"]
     p.sga_my = h["sga"]
@@ -209,7 +209,7 @@ def main() -> None:
     res = base["res"]
 
     L = []
-    L.append("# MKP case — FeasFlow biomass engine\n")
+    L.append("# Biomass operating-asset case — FeasFlow biomass engine\n")
     L.append("> Public P&L + assumptions. Not plant data. Edit `ASSUMPTIONS` and re-run.\n")
     L.append("## 1. Historical back-check (units = main revenue ÷ 4.67 ฿/kWh)\n")
     L.append("| Year (BE) | Revenue MB | Units GWh | CF vs 8 MW | COGS MB | COGS ฿/kWh | Net MB |")
@@ -270,9 +270,9 @@ def main() -> None:
     ]:
         L.append(f"- {line}")
     report = "\n".join(L)
-    with open(os.path.join(out_dir, "mkp_report.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "biomass_case_report.md"), "w", encoding="utf-8") as f:
         f.write(report)
-    with open(os.path.join(out_dir, "mkp_yearly.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "biomass_case_yearly.csv"), "w", newline="", encoding="utf-8") as f:
         cols = ["calendar_year", "net_mwh", "availability", "tariff", "heat_rate", "fuel_t",
                 "revenue", "fit_rev", "carbon_rev", "opex_feedstock", "opex_om", "opex_sga",
                 "opex", "ebitda", "depreciation", "interest", "tax", "npat",

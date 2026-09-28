@@ -343,7 +343,7 @@ _add(["brownfield_mode", "valuation_year", "ppa_end_year", "last_year_fraction",
      "Brownfield mode values an already-running plant over its REMAINING PPA (from valuation year "
      "to PPA end) using the opening debt, remaining tenor and remaining book value. Entry value 0 "
      "means the output is the enterprise / equity value of what's left (IRR is then undefined).",
-     "MKP: 2026→2039, ~7 yr debt left", "Answers 'what is the remaining contract worth', not new-project IRR.")
+     "e.g. 2026→2039, ~7 yr debt left", "Answers 'what is the remaining contract worth', not new-project IRR.")
 
 
 # ════════════════════════════════════════════════════════════════════════

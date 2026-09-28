@@ -290,11 +290,11 @@ with st.sidebar:
         st.rerun()
 
     # Preset picker — engines that expose several PRESETS (e.g. biomass:
-    # greenfield ↔ brownfield MKP valuation).
+    # greenfield ↔ brownfield asset valuation).
     _presets = getattr(REGISTRY[st.session_state.engine_code], "PRESETS", None)
     if _presets and len(_presets) > 1:
         _keys = list(_presets.keys())
-        _labels = [k.replace("_", " ").title().replace("Mkp", "MKP") for k in _keys]
+        _labels = [k.replace("_", " ").title() for k in _keys]
         _sel = st.selectbox("Preset", _labels, index=0,
                              key=f"presetsel_{st.session_state.engine_code}")
         if st.button("Load preset", use_container_width=True):
