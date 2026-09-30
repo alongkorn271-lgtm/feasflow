@@ -32,9 +32,10 @@ engines/                one self-contained engine per plant type
   rdf / wte / rdf_wte / biogas / solar / biomass .py
   __init__.py           REGISTRY = {code: module}
 feas_main.py            desktop GUI (Tkinter)          feas_theme.py  theme/cards/charts
-feas_streamlit.py       web GUI (Streamlit)            feas_help.py   per-parameter tooltips
+feas_streamlit.py       web GUI (Streamlit)            feas_help.py   parameter + KPI-card tooltips
 feas_excel.py / feas_pdf.py   report export
 audit_correctness.py + CORRECTNESS_AUDIT.md   methodology verification
+METRICS.md              every KPI: formula, discount rate, colour bands, where shown
 tests/  tools/          unit tests · operating-asset case study
 docs/                   README screenshots
 ```
@@ -65,7 +66,10 @@ as fractions (0.20 = 20%); the GUI shows ×100.
 
 ## Conventions / gotchas
 - **Never break the common output schema** — the GUIs, Excel/PDF export and audit
-  all read the same keys. Add keys, don't rename.
+  all read the same keys. Add keys, don't rename. A new KPI also needs a
+  `_kpi(...)` entry in `feas_help.py` (card tooltip) and a section in `METRICS.md`.
+- Project NPV / LCOE / BCR use the `discount_rate` input; Equity NPV uses **Ke**;
+  WACC is computed but not wired into the discount rate (see METRICS.md §2).
 - After any engine/finance change: run `audit_correctness.py` (keep 59/59) and
   `tests/`. Don't regress the other engines' base-case KPIs.
 - GUI is **DPI-aware**; fixed-pixel widths are scaled by `self.ui_scale`.

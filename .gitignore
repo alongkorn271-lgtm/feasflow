@@ -33,7 +33,7 @@ dist/
 # Inno Setup installer output
 Output/
 
-# MKP case generated reports
+# Biomass case-study generated reports (tools/biomass_case.py)
 tools/output/
 
 # Local launch config (kept out of git)

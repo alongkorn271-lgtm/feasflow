@@ -347,6 +347,138 @@ _add(["brownfield_mode", "valuation_year", "ppa_end_year", "last_year_fraction",
 
 
 # ════════════════════════════════════════════════════════════════════════
+#  KPI guidance — hover text for the KPI cards (desktop + web).
+#  Full definitions, formulas and worked notes: METRICS.md.
+#
+#  Format:  kpi_key -> (what, formula, read)
+#     what    = what the number is
+#     formula = how the engine computes it
+#     read    = how to judge it (the colour thresholds the cards use)
+#  Keys follow results["kpis"]; "discount_rate" is the brownfield hero card.
+# ════════════════════════════════════════════════════════════════════════
+_K: dict[str, tuple[str, str, str]] = {}
+
+
+def _kpi(keys, what, formula="", read=""):
+    for k in (keys if isinstance(keys, (list, tuple)) else [keys]):
+        _K[k] = (what, formula, read)
+
+
+_kpi("project_irr",
+     "Project IRR — return on the whole investment before financing (unlevered).",
+     "Rate r where NPV(FCFF) = 0. Year 0 = −total CAPEX; each year "
+     "FCFF = EBIT × (1 − tax) + depreciation; last year adds WC/DSRA "
+     "recovery − decommissioning.",
+     "Green ≥ 12% hurdle · amber 0–12% · red < 0. Compare with WACC: "
+     "IRR > WACC creates value. "
+     "If IRR is undefined (cash flow never changes sign) the card shows MIRR "
+     "(financed and reinvested at WACC).")
+_kpi("equity_irr",
+     "Equity IRR — return to the shareholders after debt service (levered).",
+     "Rate r where NPV(FCFE) = 0. Year 0 = −equity; each year "
+     "FCFE = NPAT + depreciation − principal repaid.",
+     "Green ≥ 12% hurdle · amber 0–12% · red < 0; the status banner is judged "
+     "on this number. Compare "
+     "with Ke (cost of equity). Falls back to MIRR at Ke when IRR is undefined.")
+_kpi("equity_npv",
+     "Equity NPV — present value of the shareholders' cash flows, in MB.",
+     "Σ FCFE(t) / (1 + Ke)^t for t = 0 … N, discounted at Ke "
+     "(CAPM cost of equity), not at the Discount Rate input.",
+     "> 0 → equity earns more than its required return Ke.")
+_kpi("project_npv",
+     "Project NPV — present value of the unlevered project cash flows, in MB.",
+     "Σ FCFF(t) / (1 + r)^t for t = 0 … N, r = Discount Rate input.",
+     "> 0 → the project beats the discount rate before financing.")
+_kpi("dscr_min",
+     "DSCR min — the weakest year's debt cover (loan-repayment years only).",
+     "DSCR = CFADS ÷ (interest + principal), where "
+     "CFADS = NPAT + depreciation + interest (= EBITDA − tax).",
+     "Green ≥ 1.30 (bankable) · amber 1.20–1.30 (tight) · red < 1.20 "
+     "(lenders will not accept). Lenders size debt on this number.")
+_kpi("dscr_avg",
+     "DSCR avg — average debt cover over the loan tenor.",
+     "Mean of yearly DSCR = CFADS ÷ (interest + principal), over the years "
+     "with principal repayment.",
+     "Same 1.30 / 1.20 bands as DSCR min. A high average with a low minimum "
+     "means one or two tight years — check the DSCR chart.")
+_kpi("lcoe_thb_per_kwh",
+     "LCOE — levelised cost of electricity, ฿/kWh.",
+     "[CAPEX + Σ OPEX(t) / (1 + r)^t] × 1000 ÷ Σ MWh(t) / (1 + r)^t, "
+     "r = Discount Rate. OPEX includes fuel / feedstock; tax and financing "
+     "are excluded.",
+     "Compare with the tariff (FiT / PPA): tariff > LCOE → margin per kWh.")
+_kpi("lco_pellet_thb_per_ton",
+     "LCO-Pellet — levelised cost of producing one ton of RDF, ฿/ton (RDF engine).",
+     "[CAPEX + Σ OPEX(t) / (1 + r)^t] × 10⁶ ÷ Σ tons(t) / (1 + r)^t, "
+     "r = Discount Rate.",
+     "Compare with the RDF selling price: price > LCO → margin per ton.")
+_kpi("bcr",
+     "BCR — benefit-cost ratio (UNIDO style).",
+     "PV(revenue) ÷ [CAPEX + PV(OPEX)], discounted at the Discount Rate. "
+     "Depreciation is not a cost here (CAPEX is already counted).",
+     "Green > 1: discounted revenue covers every cost; red < 1: it does not. "
+     "Ignores tax and financing.")
+_kpi(["payback_equity", "payback"],
+     "Payback — years from COD until the shareholders get their equity back.",
+     "First year where −equity + Σ FCFE ≥ 0, interpolated linearly inside "
+     "that year. Undiscounted.",
+     "Green ≤ 10 yr, amber > 10 yr. '—' = not paid back within project life.")
+_kpi("payback_project",
+     "Project payback — years from COD until cumulative FCFF recovers total CAPEX.",
+     "First year where −CAPEX + Σ FCFF ≥ 0, interpolated linearly. Undiscounted.",
+     "Shorter = less exposure to late-life risk.")
+_kpi("wacc",
+     "WACC — weighted average cost of capital, from CAPM.",
+     "E/V × Ke + D/V × Kd × (1 − tax), with Ke = Rf + βL × MRP and "
+     "βL = βU × [1 + (1 − tax) × D/E].",
+     "Benchmark for Project IRR. Project NPV, LCOE and BCR use the Discount "
+     "Rate input, not this value — set them equal for a consistent view.")
+_kpi("ke",
+     "Ke — cost of equity (CAPM), the return shareholders require.",
+     "Ke = Rf + βL × MRP, βL = βU × [1 + (1 − tax) × D/E].",
+     "Discount rate for Equity NPV; benchmark for Equity IRR.")
+_kpi(["project_mirr", "equity_mirr"],
+     "MIRR — modified IRR, shown when the ordinary IRR is undefined.",
+     "[FV of positive flows at the reinvest rate ÷ PV of negative flows at the "
+     "finance rate]^(1/N) − 1. Project: WACC / WACC; equity: Ke / Ke.",
+     "Always single-valued, so it still ranks a loss-making case.")
+_kpi("enterprise_value_remaining",
+     "Enterprise Value — what the plant's remaining cash flows are worth today "
+     "(brownfield, to debt + equity).",
+     "Σ FCFF(t) / (1 + r)^t for t ≥ 1, r = Discount Rate; the entry price "
+     "(year 0) is excluded.",
+     "Compare with an asking price for the operating asset.")
+_kpi("equity_value_remaining",
+     "Equity Value — what the shareholders' remaining cash flows are worth today "
+     "(brownfield).",
+     "Σ FCFE(t) / (1 + Ke)^t for t ≥ 1, after servicing the opening debt.",
+     "Roughly Enterprise Value minus the remaining debt.")
+_kpi("discount_rate",
+     "Discount Rate — the input rate used for Enterprise Value, LCOE and BCR "
+     "(usually set equal to WACC). Equity Value is discounted at Ke instead.",
+     "",
+     "No IRR in brownfield mode: with entry value 0 there is no up-front "
+     "investment, so IRR is undefined.")
+
+
+def kpi_guide(key: str, sep: str = "\n") -> Optional[str]:
+    """Return the hover text for one KPI card (None = no guidance).
+
+    `sep` joins the lines — "\\n" for Tk labels, "\\n\\n" for Streamlit
+    (markdown needs a blank line to break)."""
+    entry = _K.get(key)
+    if entry is None:
+        return None
+    what, formula, read = entry
+    lines = [what]
+    if formula:
+        lines.append(f"Formula:  {formula}")
+    if read:
+        lines.append(f"Read:  {read}")
+    return sep.join(lines)
+
+
+# ════════════════════════════════════════════════════════════════════════
 def guide_for(key: str, label: str = "", hint: str = "") -> Optional[str]:
     """Return the tooltip text for one parameter (None = no guidance)."""
     entry = _G.get(key)

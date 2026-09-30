@@ -48,7 +48,7 @@ from feas_theme import (
     F_MONO, F_MONO_B, F_KPI,
     SIDEBAR_WIDTH, SIDEBAR_ITEM_HEIGHT, TOPBAR_HEIGHT,
 )
-from feas_help import guide_for
+from feas_help import guide_for, kpi_guide
 
 DEBOUNCE_MS = 500
 APP_NAME    = "FeasFlow"
@@ -140,21 +140,31 @@ class ScrollableFrame(tk.Frame):
 # ════════════════════════════════════════════════════════════════════════
 class Tooltip:
     """Hover tooltip: ชี้เมาส์ค้างที่ widget ~0.5 วิ แล้วโชว์กล่องคำอธิบาย.
-    ใช้กล่องเดียวร่วมกันทั้งแอป (แสดงทีละอัน)."""
-    _tip: Optional[tk.Toplevel] = None
+    ใช้กล่องเดียวร่วมกันทั้งแอป (แสดงทีละอัน).
 
-    def __init__(self, widget, text, delay=450, wrap=360):
+    `anchor` = วาดกล่องใต้ widget นี้แทน (ใช้กับการ์ด KPI ที่มีลูกหลายชิ้น —
+    ดู tooltip_tree) และไม่ซ่อน/ไม่กะพริบเมื่อเลื่อนเมาส์ไปมาในการ์ดเดียวกัน."""
+    _tip: Optional[tk.Toplevel] = None
+    _owner = None          # anchor of the box currently on screen
+
+    def __init__(self, widget, text, delay=450, wrap=360, anchor=None):
         self.widget = widget
         self.text = text
         self.delay = delay
         self.wrap = wrap
+        self.anchor = anchor
         self._after: Optional[str] = None
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self._hide, add="+")
         widget.bind("<ButtonPress>", self._hide, add="+")
 
+    def _at(self):
+        return self.anchor or self.widget
+
     def _schedule(self, _e=None):
         self._cancel()
+        if Tooltip._tip is not None and Tooltip._owner is self._at():
+            return                       # already showing for this card
         self._after = self.widget.after(self.delay, self._show)
 
     def _cancel(self):
@@ -165,27 +175,50 @@ class Tooltip:
 
     def _show(self):
         Tooltip._destroy_current()
+        at = self._at()
         try:
-            x = self.widget.winfo_rootx() + 18
-            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+            x = at.winfo_rootx() + 18
+            y = at.winfo_rooty() + at.winfo_height() + 6
         except Exception:
             return
         tw = tk.Toplevel(self.widget)
+        tw.withdraw()                    # size it before it appears
         tw.wm_overrideredirect(True)
         try: tw.wm_attributes("-topmost", True)
         except Exception: pass
-        tw.wm_geometry(f"+{x}+{y}")
         # white box, black text, thin grey border via outer frame
         outer = tk.Frame(tw, bg="#94A3B8")
         outer.pack()
         tk.Label(outer, text=self.text, justify="left", bg="#FFFFFF",
                  fg="#111827", font=(FF, 9), wraplength=self.wrap,
                  padx=11, pady=9, bd=0).pack(padx=1, pady=1)
+        # keep the box inside the app window (right-hand KPI cards)
+        tw.update_idletasks()
+        top = self.widget.winfo_toplevel()
+        right = top.winfo_rootx() + top.winfo_width()
+        if x + tw.winfo_reqwidth() > right:
+            x = max(top.winfo_rootx(), right - tw.winfo_reqwidth() - 8)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.deiconify()
         Tooltip._tip = tw
+        Tooltip._owner = at
 
-    def _hide(self, _e=None):
+    def _hide(self, e=None):
         self._cancel()
+        # Moving between the pieces of one anchored card is not a leave.
+        if (e is not None and self.anchor is not None
+                and e.type == tk.EventType.Leave and self._inside(self.anchor, e)):
+            return
         Tooltip._destroy_current()
+
+    @staticmethod
+    def _inside(w, e):
+        try:
+            x0, y0 = w.winfo_rootx(), w.winfo_rooty()
+            return (x0 <= e.x_root < x0 + w.winfo_width()
+                    and y0 <= e.y_root < y0 + w.winfo_height())
+        except Exception:
+            return False
 
     @classmethod
     def _destroy_current(cls):
@@ -193,6 +226,16 @@ class Tooltip:
             try: cls._tip.destroy()
             except Exception: pass
             cls._tip = None
+            cls._owner = None
+
+
+def tooltip_tree(widget, text, anchor=None):
+    """One tooltip over a composite widget (e.g. a KPI card): bind it to the
+    widget and every descendant, drawn under `anchor` (default: widget)."""
+    anchor = anchor or widget
+    Tooltip(widget, text, anchor=anchor)
+    for child in widget.winfo_children():
+        tooltip_tree(child, text, anchor)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -813,19 +856,21 @@ class FeasApp:
         npv = k.get("equity_npv") or 0
 
         def pct_badge(v, hurdle=0.12):
-            if v is None or v == 0: return ("0%", "neutral")
-            sign = "+" if v >= 0 else ""
-            kind = "pos" if v >= hurdle else ("warn" if v >= 0 else "neg")
-            return (f"{sign}{v*100:.2f}%", kind)
+            # Text = gap to the hurdle; colour = green ≥ hurdle, amber 0…hurdle
+            # (marginal), red < 0 (loses money) — same bands as the banner/PDF.
+            if v is None: return ("0%", "neutral")
+            gap = v - hurdle
+            kind = "pos" if gap >= 0 else ("warn" if v >= 0 else "neg")
+            return (f"{'+' if gap >= 0 else ''}{gap*100:.2f}%", kind)
 
         # When the ordinary IRR is undefined (no sign change — e.g. a
         # persistently loss-making base case), fall back to MIRR so the card
         # still shows a meaningful return instead of a misleading 0.00%.
         def irr_cell(irr, mirr_val, base_sub):
             if irr is not None:
-                return f"{irr*100:.2f}%", pct_badge(irr - 0.12), base_sub
+                return f"{irr*100:.2f}%", pct_badge(irr), base_sub
             if mirr_val is not None:
-                return f"{mirr_val*100:.2f}%", pct_badge(mirr_val - 0.12), "MIRR · IRR undefined"
+                return f"{mirr_val*100:.2f}%", pct_badge(mirr_val), "MIRR · IRR undefined"
             return "n/a", ("n/a", "neutral"), "no positive cash flow"
 
         mode = (self.results.get("extras") or {}).get("analysis_mode", "")
@@ -840,10 +885,12 @@ class FeasApp:
             ev_val, ev_badge = mb_cell(k.get("enterprise_value_remaining"))
             eqv_val, eqv_badge = mb_cell(k.get("equity_value_remaining"))
             hero = [
-                ("Enterprise Value", ev_val, ev_badge, "remaining PPA @ WACC", "project_irr"),
-                ("Equity Value", eqv_val, eqv_badge, "remaining PPA @ Ke", "equity_irr"),
+                ("Enterprise Value", ev_val, ev_badge, "remaining PPA @ WACC", "project_irr",
+                 "enterprise_value_remaining"),
+                ("Equity Value", eqv_val, eqv_badge, "remaining PPA @ Ke", "equity_irr",
+                 "equity_value_remaining"),
                 ("Discount Rate", f"{disc*100:.2f}%", ("WACC", "neutral"),
-                 "IRR n/a · asset valuation", "equity_npv"),
+                 "IRR n/a · asset valuation", "equity_npv", "discount_rate"),
             ]
         else:
             pirr_val, pirr_badge, pirr_sub = irr_cell(
@@ -851,15 +898,18 @@ class FeasApp:
             eirr_val, eirr_badge, eirr_sub = irr_cell(
                 k.get("equity_irr"), k.get("equity_mirr"), "after debt service")
             hero = [
-                ("Project IRR",  pirr_val,  pirr_badge, pirr_sub,  "project_irr"),
-                ("Equity IRR",   eirr_val,  eirr_badge, eirr_sub,  "equity_irr"),
+                ("Project IRR",  pirr_val,  pirr_badge, pirr_sub,  "project_irr",
+                 "project_irr"),
+                ("Equity IRR",   eirr_val,  eirr_badge, eirr_sub,  "equity_irr",
+                 "equity_irr"),
                 ("Equity NPV",   f"{npv:,.0f} MB",
                  (f"{'+' if npv >= 0 else ''}{npv:.1f} MB",
                   "pos" if npv >= 0 else "neg"),
-                 f"@ {disc*100:.2f}%",
-                 "equity_npv"),
+                 f"@ Ke {(k.get('ke') or 0)*100:.2f}%",     # FCFE is discounted at Ke
+                 "equity_npv", "equity_npv"),
             ]
-        for i, (lbl, val, (badge_txt, badge_kind), sub, key) in enumerate(hero):
+        # key = sparkline series · tip = KPI guidance (feas_help.kpi_guide)
+        for i, (lbl, val, (badge_txt, badge_kind), sub, key, tip) in enumerate(hero):
             card = make_kpi_card(
                 self.hero_kpi_row,
                 label=lbl, value=val,
@@ -869,6 +919,7 @@ class FeasApp:
                 sub=sub,
             )
             card.grid(row=0, column=i, sticky="nsew", padx=6)
+            self._kpi_tooltip(card, tip)
         for i in range(3):
             self.hero_kpi_row.columnconfigure(i, weight=1, uniform="hero")
 
@@ -888,25 +939,26 @@ class FeasApp:
             if v is None: return "neutral"
             return "pos" if v >= 1.30 else ("warn" if v >= 1.20 else "neg")
 
+        cost_tip = "lco_pellet_thb_per_ton" if is_rdf else "lcoe_thb_per_kwh"
         cards = [
             ("DSCR min",    f"{(k.get('dscr_min') or 0):.2f}",
              ("≥1.30 = bank", dscr_kind(k.get("dscr_min"))),
-             "≥ 1.30 bankable", "dscr_min"),
+             "≥ 1.30 bankable", "dscr_min", "dscr_min"),
             ("DSCR avg",    f"{(k.get('dscr_avg') or 0):.2f}",
              ("lifetime", dscr_kind(k.get("dscr_avg"))),
-             "average", "dscr_avg"),
-            (cost_lbl, cost_val, ("", "neutral"), cost_sub, "lcoe"),
+             "average", "dscr_avg", "dscr_avg"),
+            (cost_lbl, cost_val, ("", "neutral"), cost_sub, "lcoe", cost_tip),
             ("BCR", f"{(k.get('bcr') or 0):.2f}x",
              ("> 1", "pos" if (k.get("bcr") or 0) >= 1 else "neg"),
-             "PV ratio", "bcr"),
+             "PV ratio", "bcr", "bcr"),
             ("Payback",
              f"{k['payback_equity']:.1f} yr" if k.get("payback_equity") is not None else "—",
              ("equity", "pos" if (k.get("payback_equity") or 99) <= 10 else "warn"),
-             "from COD", "payback"),
+             "from COD", "payback", "payback_equity"),
             ("WACC",     f"{(k.get('wacc') or 0)*100:.2f}%",
-             ("CAPM", "neutral"), "discount rate", "wacc"),
+             ("CAPM", "neutral"), "cost of capital", "wacc", "wacc"),
         ]
-        for i, (lbl, val, (badge_txt, badge_kind), sub, key) in enumerate(cards):
+        for i, (lbl, val, (badge_txt, badge_kind), sub, key, tip) in enumerate(cards):
             card = make_kpi_card(
                 self.sec_kpi_row,
                 label=lbl, value=val,
@@ -916,8 +968,24 @@ class FeasApp:
                 sub=sub,
             )
             card.grid(row=0, column=i, sticky="nsew", padx=6)
+            self._kpi_tooltip(card, tip)
         for i in range(len(cards)):
             self.sec_kpi_row.columnconfigure(i, weight=1, uniform="sec")
+
+    @staticmethod
+    def _kpi_tooltip(card, tip_key):
+        """Hover anywhere on a KPI card → what it means / formula / how to read."""
+        text = kpi_guide(tip_key)
+        if not text:
+            return
+        tooltip_tree(card, text)
+
+        def _cursor(w):
+            try: w.configure(cursor="question_arrow")
+            except Exception: pass
+            for ch in w.winfo_children():
+                _cursor(ch)
+        _cursor(card)
 
     def _render_generation(self):
         gen = self.results["generation"]
