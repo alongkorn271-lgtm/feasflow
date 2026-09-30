@@ -341,7 +341,7 @@ with st.sidebar:
             st.error(f"Load failed: {e}")
 
     st.markdown(f"<div style='position:absolute; bottom:16px; color:{TEXT_MUTED}; "
-                 f"font-size:10px;'>v2.1  ·  multi-engine</div>",
+                 f"font-size:10px;'>v2.1.1  ·  multi-engine</div>",
                  unsafe_allow_html=True)
 
 
@@ -952,5 +952,5 @@ with tab_exp:
     st.markdown(f"<div style='color:{TEXT_MUTED}; font-size:11px;'>"
                  f"Generated {datetime.now():%Y-%m-%d %H:%M}  ·  "
                  f"Engine: {st.session_state.engine_code}  ·  "
-                 f"FeasFlow v2.1</div>",
+                 f"FeasFlow v2.1.1</div>",
                  unsafe_allow_html=True)

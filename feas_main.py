@@ -52,7 +52,7 @@ from feas_help import guide_for, kpi_guide
 
 DEBOUNCE_MS = 500
 APP_NAME    = "FeasFlow"
-APP_VERSION = "2.1"
+APP_VERSION = "2.1.1"
 APP_AUTHOR  = "Alongkorn Chanta"
 ENGINE_ORDER = ["rdf", "wte", "rdf_wte", "biogas", "solar", "biomass"]
 
