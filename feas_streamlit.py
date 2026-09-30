@@ -26,7 +26,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from engines import REGISTRY
-from feas_help import guide_for
+from feas_help import guide_for, kpi_guide
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -341,7 +341,7 @@ with st.sidebar:
             st.error(f"Load failed: {e}")
 
     st.markdown(f"<div style='position:absolute; bottom:16px; color:{TEXT_MUTED}; "
-                 f"font-size:10px;'>v2.1  ·  multi-engine</div>",
+                 f"font-size:10px;'>v2.1.1  ·  multi-engine</div>",
                  unsafe_allow_html=True)
 
 
@@ -503,50 +503,62 @@ with right_col:
         diff = v - target
         return f"{diff:+.2f} vs 1.30"
 
-    def irr_metric(col, label, irr, mirr_val):
+    def tip(key):
+        # KPI hover guidance (same text as the desktop cards); markdown
+        # needs a blank line between lines.
+        return kpi_guide(key, sep="\n\n")
+
+    def irr_metric(col, label, irr, mirr_val, key):
         # Fall back to MIRR when the ordinary IRR is undefined (no sign change,
         # e.g. a persistently loss-making base case) instead of showing n/a.
         if irr is not None:
-            col.metric(label, pct(irr), delta=delta_for_irr(irr))
+            col.metric(label, pct(irr), delta=delta_for_irr(irr), help=tip(key))
         elif mirr_val is not None:
             col.metric(f"{label} · MIRR", pct(mirr_val),
-                       delta=delta_for_irr(mirr_val))
+                       delta=delta_for_irr(mirr_val), help=tip(key))
         else:
             col.metric(label, "n/a", delta="no positive cash flow",
-                       delta_color="off")
+                       delta_color="off", help=tip(key))
 
     r1c1, r1c2, r1c3 = st.columns(3)
     if mode == "brownfield":
         _ev = k.get("enterprise_value_remaining"); _eqv = k.get("equity_value_remaining")
         r1c1.metric("Enterprise Value", f"{_ev:,.0f} MB" if _ev is not None else "n/a",
-                     delta="remaining PPA @ WACC", delta_color="off")
+                     delta="remaining PPA @ WACC", delta_color="off",
+                     help=tip("enterprise_value_remaining"))
         r1c2.metric("Equity Value", f"{_eqv:,.0f} MB" if _eqv is not None else "n/a",
-                     delta="remaining PPA @ Ke", delta_color="off")
+                     delta="remaining PPA @ Ke", delta_color="off",
+                     help=tip("equity_value_remaining"))
         r1c3.metric("Discount Rate", f"{params.discount_rate*100:.2f}%",
-                     delta="IRR n/a · asset valuation", delta_color="off")
+                     delta="IRR n/a · asset valuation", delta_color="off",
+                     help=tip("discount_rate"))
     else:
-        irr_metric(r1c1, "Project IRR", k.get("project_irr"), k.get("project_mirr"))
-        irr_metric(r1c2, "Equity IRR",  k.get("equity_irr"),  k.get("equity_mirr"))
+        irr_metric(r1c1, "Project IRR", k.get("project_irr"), k.get("project_mirr"),
+                   "project_irr")
+        irr_metric(r1c2, "Equity IRR",  k.get("equity_irr"),  k.get("equity_mirr"),
+                   "equity_irr")
         r1c3.metric("Equity NPV", f"{k['equity_npv']:.0f} MB",
-                     delta=f"@ {params.discount_rate*100:.2f}%",
-                     delta_color="off")
+                     delta=f"@ Ke {k['ke']*100:.2f}%",      # FCFE is discounted at Ke
+                     delta_color="off", help=tip("equity_npv"))
 
     r2c1, r2c2, r2c3 = st.columns(3)
     r2c1.metric("DSCR min", num(k["dscr_min"]),
-                 delta=delta_for_dscr(k["dscr_min"]))
+                 delta=delta_for_dscr(k["dscr_min"]), help=tip("dscr_min"))
     r2c2.metric("DSCR avg", num(k["dscr_avg"]),
-                 delta=delta_for_dscr(k["dscr_avg"]))
-    r2c3.metric(cost_label, cost_value, delta=cost_unit, delta_color="off")
+                 delta=delta_for_dscr(k["dscr_avg"]), help=tip("dscr_avg"))
+    r2c3.metric(cost_label, cost_value, delta=cost_unit, delta_color="off",
+                 help=tip("lco_pellet_thb_per_ton" if is_rdf else "lcoe_thb_per_kwh"))
 
     r3c1, r3c2, r3c3 = st.columns(3)
     r3c1.metric("BCR", f"{k['bcr']:.3f}x",
                  delta="> 1 viable" if k['bcr'] >= 1 else "< 1 marginal",
-                 delta_color="normal" if k['bcr'] >= 1 else "inverse")
+                 delta_color="normal" if k['bcr'] >= 1 else "inverse",
+                 help=tip("bcr"))
     r3c2.metric("Payback (Eq.)",
-                 f"{(k['payback_equity'] or 0):.1f} yr",
-                 delta="from COD", delta_color="off")
+                 f"{k['payback_equity']:.1f} yr" if k.get("payback_equity") is not None else "—",
+                 delta="from COD", delta_color="off", help=tip("payback_equity"))
     r3c3.metric("WACC", pct(k["wacc"]), delta="CAPM-derived",
-                 delta_color="off")
+                 delta_color="off", help=tip("wacc"))
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -940,5 +952,5 @@ with tab_exp:
     st.markdown(f"<div style='color:{TEXT_MUTED}; font-size:11px;'>"
                  f"Generated {datetime.now():%Y-%m-%d %H:%M}  ·  "
                  f"Engine: {st.session_state.engine_code}  ·  "
-                 f"FeasFlow v2.1</div>",
+                 f"FeasFlow v2.1.1</div>",
                  unsafe_allow_html=True)

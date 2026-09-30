@@ -53,6 +53,7 @@ For teammates who want to ask about the model **without opening the code**:
    - `FLOWCHARTS.md`
    - `IMPROVEMENTS.md`
    - `CORRECTNESS_AUDIT.md`
+   - `METRICS.md`
    - (optional) `docs/gui-overview.png`, `gui-charts.png`, `gui-biogas.png`
 
 > Code work happens in Claude Code on the cloned repo; the Claude Project is only
@@ -68,6 +69,7 @@ For teammates who want to ask about the model **without opening the code**:
 | `FLOWCHARTS.md` | per-engine technical + financial diagrams |
 | `IMPROVEMENTS.md` | engine refinement notes |
 | `CORRECTNESS_AUDIT.md` | methodology verification (59 checks) |
+| `METRICS.md` | every KPI explained: formula, discount rate, colour bands, where shown |
 | `requirements.txt` · `.gitignore` · `.streamlit/config.toml` | env / deploy config |
 | `FeasFlow.spec` · `build_installer.bat` · `FeasFlow_installer.iss` | Windows packaging |
 
