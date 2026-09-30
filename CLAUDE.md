@@ -21,6 +21,10 @@ python -m tools.biomass_case        # operating-asset case study report
 ```
 Windows packaging: `build_installer.bat` → `Output\FeasFlow_Setup.exe`
 (PyInstaller `FeasFlow.spec` onedir + Inno Setup `FeasFlow_installer.iss`).
+The user guide shipped next to the exe is `packaging/README_th.txt` (the spec
+copies it in as `README_วิธีใช้.txt`) — edit it there, not in `dist/`.
+Version lives in `APP_VERSION` (feas_main.py), two strings in feas_streamlit.py,
+`MyAppVersion` (.iss) and the README — bump them together.
 
 ## Architecture
 ```

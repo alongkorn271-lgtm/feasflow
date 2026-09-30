@@ -70,3 +70,12 @@ coll = COLLECT(
     upx_exclude=[],
     name="FeasFlow",
 )
+
+# --- user README next to FeasFlow.exe (not inside _internal) ---
+# COLLECT wipes dist/FeasFlow/ on every build, so the Thai how-to-run guide
+# lives in the repo (packaging/README_th.txt) and is copied in afterwards.
+# The installer bundles dist\FeasFlow\* so it ships with the setup too.
+import os
+import shutil
+shutil.copy2(os.path.join(SPECPATH, "packaging", "README_th.txt"),
+             os.path.join(DISTPATH, "FeasFlow", "README_วิธีใช้.txt"))
