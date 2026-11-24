@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Generated reports / test outputs
+report_*.xlsx
+report_*.pdf
+feas_test_*.xlsx
+feas_test_*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Streamlit cache
+.streamlit/secrets.toml
+
+# PyInstaller build artifacts
+build/
+dist/
+*.manifest
+
+# Inno Setup installer output
+Output/
+
+# Biomass case-study generated reports (tools/biomass_case.py)
+tools/output/
+
+# Local launch config (kept out of git)
+.claude/
+
+# Facebook / social post images (local only)
+docs/facebook/
