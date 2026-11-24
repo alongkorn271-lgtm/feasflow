@@ -36,8 +36,14 @@ st.set_page_config(
     page_title="FeasFlow — Feasibility Studio",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # "auto": open on desktop, folded on phones so the KPI cards are not
+    # hidden behind the menu (most visitors from social links are on mobile)
+    initial_sidebar_state="auto",
 )
+
+REPO_URL = "https://github.com/alongkorn271-lgtm/feasflow"
+DISCLAIMER = ("⚠️ Estimates for feasibility screening only — not investment advice. "
+              "ผลคำนวณเป็นการประมาณการเพื่อศึกษาความเป็นไปได้ ไม่ใช่คำแนะนำการลงทุน")
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -560,6 +566,8 @@ with right_col:
     r3c3.metric("WACC", pct(k["wacc"]), delta="CAPM-derived",
                  delta_color="off", help=tip("wacc"))
 
+    st.caption(DISCLAIMER)
+
 
 # ════════════════════════════════════════════════════════════════════════
 # TABS BELOW: Cashflow · Charts · Raw Material · WACC · Export
@@ -954,3 +962,16 @@ with tab_exp:
                  f"Engine: {st.session_state.engine_code}  ·  "
                  f"FeasFlow v2.1.1</div>",
                  unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# PAGE FOOTER — shown under every tab (public web app)
+# ════════════════════════════════════════════════════════════════════════
+st.divider()
+st.caption(
+    f"FeasFlow v2.1.1 · by Alongkorn Chanta · "
+    f"[How each KPI is calculated]({REPO_URL}/blob/main/METRICS.md) · "
+    f"[Source code]({REPO_URL})  \n"
+    f"{DISCLAIMER} Results depend entirely on the assumptions entered — "
+    f"check them against your own project before any decision."
+)

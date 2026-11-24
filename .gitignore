@@ -38,3 +38,6 @@ tools/output/
 
 # Local launch config (kept out of git)
 .claude/
+
+# Facebook / social post images (local only)
+docs/facebook/
